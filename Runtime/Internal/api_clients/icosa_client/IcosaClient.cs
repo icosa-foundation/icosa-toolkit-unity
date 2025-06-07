@@ -175,22 +175,22 @@ namespace IcosaClientInternal.api_clients.icosa_client
             sb.Append(GetBaseUrl())
                 .Append("/v1/assets");
 
-            sb.AppendFormat("?order_by={0}", WWW.EscapeURL(ORDER_BY[listAssetsRequest.orderBy]));
+            sb.AppendFormat("?order_by={0}", UnityWebRequest.EscapeURL(ORDER_BY[listAssetsRequest.orderBy]));
             sb.AppendFormat("&page_size={0}", listAssetsRequest.pageSize.ToString());
 
             if (listAssetsRequest.formatFilter != null)
             {
-                sb.AppendFormat("&format={0}", WWW.EscapeURL(FORMAT_FILTER[listAssetsRequest.formatFilter.Value]));
+                sb.AppendFormat("&format={0}", UnityWebRequest.EscapeURL(FORMAT_FILTER[listAssetsRequest.formatFilter.Value]));
             }
 
             if (listAssetsRequest.keywords != null)
             {
-                sb.AppendFormat("&keywords={0}", WWW.EscapeURL(listAssetsRequest.keywords));
+                sb.AppendFormat("&keywords={0}", UnityWebRequest.EscapeURL(listAssetsRequest.keywords));
             }
 
             if (listAssetsRequest.category != IcosaCategory.UNSPECIFIED)
             {
-                sb.AppendFormat("&category={0}", WWW.EscapeURL(CATEGORIES[listAssetsRequest.category]));
+                sb.AppendFormat("&category={0}", UnityWebRequest.EscapeURL(CATEGORIES[listAssetsRequest.category]));
             }
 
             if (listAssetsRequest.curated)
@@ -200,12 +200,12 @@ namespace IcosaClientInternal.api_clients.icosa_client
 
             if (listAssetsRequest.maxComplexity != IcosaMaxComplexityFilter.UNSPECIFIED)
             {
-                sb.AppendFormat("&max_complexity={0}", WWW.EscapeURL(MAX_COMPLEXITY[listAssetsRequest.maxComplexity]));
+                sb.AppendFormat("&max_complexity={0}", UnityWebRequest.EscapeURL(MAX_COMPLEXITY[listAssetsRequest.maxComplexity]));
             }
 
             if (listAssetsRequest.pageToken != null)
             {
-                sb.AppendFormat("&page_token={0}", WWW.EscapeURL(listAssetsRequest.pageToken));
+                sb.AppendFormat("&page_token={0}", UnityWebRequest.EscapeURL(listAssetsRequest.pageToken));
             }
 
             return sb.ToString();
@@ -223,19 +223,19 @@ namespace IcosaClientInternal.api_clients.icosa_client
 
             if (listUserAssetsRequest.formatFilter != null)
             {
-                sb.AppendFormat("&format={0}", WWW.EscapeURL(FORMAT_FILTER[listUserAssetsRequest.formatFilter.Value]));
+                sb.AppendFormat("&format={0}", UnityWebRequest.EscapeURL(FORMAT_FILTER[listUserAssetsRequest.formatFilter.Value]));
             }
 
             if (listUserAssetsRequest.visibility != IcosaVisibilityFilter.UNSPECIFIED)
             {
-                sb.AppendFormat("&visibility={0}", WWW.EscapeURL(VISIBILITY[listUserAssetsRequest.visibility]));
+                sb.AppendFormat("&visibility={0}", UnityWebRequest.EscapeURL(VISIBILITY[listUserAssetsRequest.visibility]));
             }
 
-            sb.AppendFormat("&order_by={0}", WWW.EscapeURL(ORDER_BY[listUserAssetsRequest.orderBy]));
+            sb.AppendFormat("&order_by={0}", UnityWebRequest.EscapeURL(ORDER_BY[listUserAssetsRequest.orderBy]));
             sb.AppendFormat("&page_size={0}", listUserAssetsRequest.pageSize);
             if (listUserAssetsRequest.pageToken != null)
             {
-                sb.AppendFormat("&page_token={0}", WWW.EscapeURL(listUserAssetsRequest.pageToken));
+                sb.AppendFormat("&page_token={0}", UnityWebRequest.EscapeURL(listUserAssetsRequest.pageToken));
             }
 
             return sb.ToString();
@@ -251,11 +251,11 @@ namespace IcosaClientInternal.api_clients.icosa_client
                 .Append("/v1/users/me/likedassets")
                 .AppendFormat("?key={0}", IcosaMainInternal.Instance.apiKey);
 
-            sb.AppendFormat("&order_by={0}", WWW.EscapeURL(ORDER_BY[listLikedAssetsRequest.orderBy]));
+            sb.AppendFormat("&order_by={0}", UnityWebRequest.EscapeURL(ORDER_BY[listLikedAssetsRequest.orderBy]));
             sb.AppendFormat("&page_size={0}", listLikedAssetsRequest.pageSize);
             if (listLikedAssetsRequest.pageToken != null)
             {
-                sb.AppendFormat("&page_token={0}", WWW.EscapeURL(listLikedAssetsRequest.pageToken));
+                sb.AppendFormat("&page_token={0}", UnityWebRequest.EscapeURL(listLikedAssetsRequest.pageToken));
             }
 
             return sb.ToString();
