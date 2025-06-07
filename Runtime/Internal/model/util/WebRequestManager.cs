@@ -266,7 +266,7 @@ namespace IcosaClientInternal.client.model.util
                 {
                     PtDebug.LogVerboseFormat("Web request CACHE HIT: {0}, response: {1} bytes",
                         webRequest.url, cacheData.Length);
-                    request.completionCallback(IcosaStatus.Success(), /* responseCode */ 200, cacheData);
+                    request.completionCallback(IcosaStatus.Success(), /* responseCode */ 203, cacheData);
 
                     // Return the buffer to the pool for reuse.
                     CleanUpAfterWebRequest(bufferHolder);
