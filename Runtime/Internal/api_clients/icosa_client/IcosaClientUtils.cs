@@ -87,7 +87,6 @@ namespace IcosaClientInternal.api_clients.icosa_client
             UnityWebRequest request = new UnityWebRequest(dataUrl.ToString());
             request.method = UnityWebRequest.kHttpVerbGET;
             request.SetRequestHeader("Content-Type", "text/plain");
-            request.SetRequestHeader("Token", "c1820c69-9818-45b9-83ae-a5b9784a90a3");
             if (accessToken != null)
             {
                 request.SetRequestHeader("Authorization", string.Format("Bearer {0}", accessToken));
