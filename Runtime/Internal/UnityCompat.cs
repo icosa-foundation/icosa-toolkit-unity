@@ -24,24 +24,12 @@ namespace IcosaClientInternal
     {
         public static UnityWebRequest GetTexture(string url)
         {
-#if UNITY_2017_1_OR_NEWER
-            // New API.
             return UnityWebRequestTexture.GetTexture(url);
-#else
-      // Old API, removed in Unity 2017.1.
-      return UnityWebRequest.GetTexture(url);
-#endif
         }
 
         public static bool IsNetworkError(UnityWebRequest req)
         {
-#if UNITY_2017_1_OR_NEWER
-            // New API.
-            return req.isNetworkError;
-#else
-      // Old API (Unity 5.6).
-      return req.isError;
-#endif
+            return req.result != UnityWebRequest.Result.Success || req.responseCode < 200 || req.responseCode >= 300;
         }
 
         public static AsyncOperation SendWebRequest(UnityWebRequest req)
