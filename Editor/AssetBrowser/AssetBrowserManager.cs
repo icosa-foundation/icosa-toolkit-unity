@@ -599,7 +599,7 @@ namespace IcosaClientEditor
 
             string absPath = PtUtils.ToAbsolutePath(downloadLocalPath);
 
-            string extension = isGltf2 ? ".gltf2" : ".gltf";
+            string extension = ".gltf";
             string fileName = baseName + extension;
 
             // We have to place an import request so that IcosaImporter does the right thing when it sees the new file.
