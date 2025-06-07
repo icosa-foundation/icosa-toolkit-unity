@@ -623,27 +623,17 @@ namespace IcosaClientEditor
             // all the necessary resources are already in place.
 
             // Maintain a mapping of original file names to their corresponding hash.
-            StringBuilder fileMapSb = new StringBuilder();
             foreach (IcosaFile file in package.resources)
             {
-                // In order to avoid having to replicate the original directory structure of the
-                // asset (which might be incompatible with our file system, or even maliciously constructed),
-                // we replace the original path of each resource file with the MD5 hash of the path.
-                // That maintains uniqueness of paths and flattens the structure so that every resource
-                // can live in the same directory.
-                string path = Path.Combine(destFolder, IcosaInternalUtils.ConvertFilePathToHash(file.relativePath));
+                string path = Path.Combine(destFolder, file.relativePath);
                 if (file.contents != null)
                 {
                     File.WriteAllBytes(path, file.contents);
-                    fileMapSb.AppendFormat("{0} -> {1}\n", file.relativePath,
-                        IcosaInternalUtils.ConvertFilePathToHash(file.relativePath));
                 }
             }
 
             // Lastly, write the main file.
             File.WriteAllBytes(Path.Combine(destFolder, mainFileName), package.root.contents);
-            // Write the file mapping.
-            File.WriteAllText(Path.Combine(destFolder, "FileNameMapping.txt"), fileMapSb.ToString());
         }
 
         private bool PrepareDownload(IcosaAsset asset, out string baseName, out string downloadLocalPath)
