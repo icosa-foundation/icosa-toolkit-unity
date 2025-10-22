@@ -356,6 +356,8 @@ namespace IcosaClientInternal.api_clients.icosa_client
             icosaAsset.assetId = asset["assetId"].ToString();
             icosaAsset.displayName = asset["name"].ToString();
             icosaAsset.authorName = asset["authorName"].ToString();
+            icosaAsset.authorId = asset["authorId"].ToString();
+
             if (asset["thumbnail"] != null)
             {
                 IJEnumerable<JToken> thumbnailElements = asset["thumbnail"].AsJEnumerable();

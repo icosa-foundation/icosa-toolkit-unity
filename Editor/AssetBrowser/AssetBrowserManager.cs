@@ -29,7 +29,6 @@ namespace IcosaClientEditor
     /// </summary>
     public class AssetBrowserManager
     {
-        private const string BASE_URL = "https://api.icosa.gallery";
         private const string CLIENT_SECRET = "49385a554c3274635d6c47327d3a3c557d67793e79267852";
 
         private const string CLIENT_ID = "3539303a373737363831393b2178617c60227d7f7b7966252a74226e296f2d29174315175" +
@@ -100,7 +99,7 @@ namespace IcosaClientEditor
         private IcosaRequest requestToSendAfterAuth = null;
 
         private IcosaAuthConfig authConfig = new IcosaAuthConfig(
-            baseUrl: BASE_URL,
+            baseUrl: IcosaAsset.API_BASE_URL,
             apiKey: Deobfuscate(API_KEY),
             clientId: Deobfuscate(CLIENT_ID),
             clientSecret: Deobfuscate(CLIENT_SECRET));
