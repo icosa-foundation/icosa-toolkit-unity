@@ -15,19 +15,20 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.Build;
+using UnityEditor.Build.Reporting;
 using IcosaClientInternal;
 
 namespace IcosaClientEditor
 {
     [InitializeOnLoad]
-    public class CheckBuild : IPreprocessBuild
+    public class CheckBuild : IPreprocessBuildWithReport
     {
         public int callbackOrder
         {
             get { return 0; }
         }
 
-        public void OnPreprocessBuild(BuildTarget target, string path)
+        public void OnPreprocessBuild(BuildReport report)
         {
             CheckApiCompatibilitySetting();
             // In the future, we can add other checks here.

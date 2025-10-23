@@ -532,42 +532,27 @@ namespace IcosaClientEditor
             PtDebug.LogFormat("ABM: starting to fetch asset {0} ({1}) -> {2}", asset.assetId, asset.displayName,
                 ptAssetLocalPath);
 
-            // Prefer glTF1 to glTF2.
-            // It used to be that no Poly assets had both formats, so the ordering did not matter.
-            // Blocks assets now have both glTF1 and glTF2. PT does not understand the glTF2 version,
-            // so the ordering matters a great deal.
-            IcosaFormat glTF2format = asset.GetFormatIfExists(IcosaFormatType.GLTF_2);
-            IcosaFormat glTFformat = asset.GetFormatIfExists(IcosaFormatType.GLTF);
+            // Get the best format based on API preferences and priority (GLTF2 > GLTF > OBJ).
+            IcosaFormat bestFormat = asset.GetBestFormat();
+
+            if (bestFormat == null)
+            {
+                Debug.LogError($"No preferred format available for asset {asset.displayName}. Cannot import.");
+                return;
+            }
 
             IcosaMainInternal.FetchProgressCallback progressCallback = (IcosaAsset assetBeingFetched, float progress) =>
             {
                 EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, progress);
             };
 
-            if (glTFformat != null)
-            {
-                EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
-                IcosaMainInternal.Instance.FetchFormatFiles(asset, IcosaFormatType.GLTF,
-                    (IcosaAsset resultAsset, IcosaStatus status) =>
-                    {
-                        EditorUtility.ClearProgressBar();
-                        OnFetchFinished(status, resultAsset, /*isGltf2*/ false, ptAssetLocalPath, options);
-                    }, progressCallback);
-            }
-            else if (glTF2format != null)
-            {
-                EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
-                IcosaMainInternal.Instance.FetchFormatFiles(asset, IcosaFormatType.GLTF_2,
-                    (IcosaAsset resultAsset, IcosaStatus status) =>
-                    {
-                        EditorUtility.ClearProgressBar();
-                        OnFetchFinished(status, resultAsset, /*isGltf2*/ true, ptAssetLocalPath, options);
-                    }, progressCallback);
-            }
-            else
-            {
-                Debug.LogError("Asset not in GLTF_2 or GLTF format. Can't import.");
-            }
+            EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
+            IcosaMainInternal.Instance.FetchFormatFiles(asset, bestFormat.formatType,
+                (IcosaAsset resultAsset, IcosaStatus status) =>
+                {
+                    EditorUtility.ClearProgressBar();
+                    OnFetchFinished(status, resultAsset, ptAssetLocalPath, options);
+                }, progressCallback);
         }
 
         /// <summary>
@@ -579,7 +564,7 @@ namespace IcosaClientEditor
             thumbnailCache.Clear();
         }
 
-        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset, bool isGltf2,
+        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset,
             string ptAssetLocalPath, EditTimeImportOptions options)
         {
             if (!status.ok)
@@ -606,10 +591,16 @@ namespace IcosaClientEditor
                 downloadLocalPath + "/" + fileName, ptAssetLocalPath, options, asset));
 
             // Now unpackage it. GltfProcessor will pick it up automatically.
-            UnpackPackageToFolder(
-                isGltf2
-                    ? asset.GetFormatIfExists(IcosaFormatType.GLTF_2)
-                    : asset.GetFormatIfExists(IcosaFormatType.GLTF), absPath, fileName);
+            IcosaFormat formatToUnpack = asset.GetBestFormat();
+            if (formatToUnpack != null)
+            {
+                UnpackPackageToFolder(formatToUnpack, absPath, fileName);
+            }
+            else
+            {
+                Debug.LogError($"No format to unpack for asset {asset.displayName}");
+                return;
+            }
 
             PtDebug.LogFormat("ABM: Successfully downloaded {0} to {1}", asset, absPath);
             AssetDatabase.Refresh();

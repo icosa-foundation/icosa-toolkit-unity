@@ -478,6 +478,12 @@ namespace IcosaClientInternal.api_clients.icosa_client
                 }
             }
 
+            // Get the is_preferred_for_download flag
+            if (token["isPreferredForDownload"] != null)
+            {
+                package.isPreferredForDownload = bool.Parse(token["isPreferredForDownload"].ToString());
+            }
+
             return package;
         }
 

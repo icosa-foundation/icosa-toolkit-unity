@@ -2,6 +2,7 @@
     "name": "Icosa API Client for Unity-runtime",
     "rootNamespace": "",
     "references": [
+        "GUID:18d18f811ba286c49814567a3cfba688"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

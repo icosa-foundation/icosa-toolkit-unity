@@ -283,21 +283,16 @@ namespace IcosaClientInternal
 
         public void Import(IcosaAsset asset, IcosaImportOptions options, IcosaApi.ImportCallback callback = null)
         {
-            IcosaFormat gltfFormat = asset.GetFormatIfExists(IcosaFormatType.GLTF);
-            IcosaFormat gltf2Format = asset.GetFormatIfExists(IcosaFormatType.GLTF_2);
+            IcosaFormat bestFormat = asset.GetBestFormat();
 
-            if (gltf2Format != null)
+            if (bestFormat != null)
             {
-                FetchAndImportFormat(asset, gltf2Format, options, callback);
-            }
-            else if (gltfFormat != null)
-            {
-                FetchAndImportFormat(asset, gltfFormat, options, callback);
+                FetchAndImportFormat(asset, bestFormat, options, callback);
             }
             else
             {
                 callback(asset, new IcosaStatusOr<IcosaImportResult>(
-                    IcosaStatus.Error("Neither glTF or glTF_2 format was present in asset")));
+                    IcosaStatus.Error("No preferred format available for this asset")));
             }
         }
 

@@ -14,6 +14,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using IcosaClientInternal;
 using System.Collections;
@@ -133,6 +134,37 @@ namespace IcosaApiClient
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Gets the best format for download, filtering by isPreferredForDownload.
+        /// Priority: GLTF2 > GLTF > OBJ (among preferred formats only).
+        /// Returns null if no preferred format is available.
+        /// </summary>
+        public IcosaFormat GetBestFormat()
+        {
+            // Filter to only preferred formats
+            var preferredFormats = formats.Where(f => f != null && f.isPreferredForDownload).ToList();
+
+
+            if (preferredFormats.Count == 0)
+            {
+                // Fallback: no preferred formats, return null
+                return null;
+            }
+
+            // Prioritize: GLTF2 > GLTF > OBJ > any other format
+            var gltf2 = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF_2);
+            if (gltf2 != null) return gltf2;
+
+            var gltf = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF);
+            if (gltf != null) return gltf;
+
+            var obj = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.OBJ);
+            if (obj != null) return obj;
+
+            // Return first preferred format as fallback
+            return preferredFormats[0];
         }
 
         /// <summary>
@@ -318,6 +350,11 @@ namespace IcosaApiClient
         /// Complexity of this format.
         /// </summary>
         public IcosaFormatComplexity formatComplexity;
+
+        /// <summary>
+        /// Whether this format is preferred for download according to the API.
+        /// </summary>
+        public bool isPreferredForDownload;
 
         public override string ToString()
         {
