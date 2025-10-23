@@ -1,7 +1,8 @@
 {
     "name": "Icosa API Client for Unity-editor",
     "references": [
-        "GUID:d78e5bd1ea41677448b94d16032f50af"
+        "GUID:d78e5bd1ea41677448b94d16032f50af",
+        "GUID:18d18f811ba286c49814567a3cfba688"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -18,8 +18,12 @@ using UnityEditor;
 using System.IO;
 using System.Text.RegularExpressions;
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 using IcosaApiClient;
 using IcosaClientInternal;
+using UnityGLTF;
+using UnityGLTF.Loader;
 
 namespace IcosaClientEditor
 {
@@ -113,22 +117,57 @@ namespace IcosaClientEditor
                 prefabToReplace = assetToReplace.assetPrefab;
             }
 
-            // Determine if file is glTF2 or glTF1.
-            bool isGltf2 = Path.GetExtension(request.gltfLocalPath) == ".gltf2";
-
-            // First, import the GLTF and build a GameObject from it.
+            // Import the GLTF using UnityGLTF and build a GameObject from it.
             EditorUtility.DisplayProgressBar(PROGRESS_BAR_TITLE, PROGRESS_BAR_TEXT, 0.5f);
-            ImportGltf.GltfImportResult result = null;
+            GameObject root = null;
+            List<Mesh> meshes = new List<Mesh>();
+            List<Material> materials = new List<Material>();
+            List<Texture2D> textures = new List<Texture2D>();
+
             try
             {
-                // Use a SanitizedPath stream loader because any format file we have downloaded and saved to disk we
-                // have replaced the original relative path string with the MD5 string hash. This custom stream loader
-                // will always convert uris passed to it to this hash value, and read them from there.
-                IUriLoader binLoader = new HashedPathBufferedStreamLoader(Path.GetDirectoryName(gltfFullPath));
-                using (TextReader reader = new StreamReader(gltfFullPath))
+                // Create a data loader to load external resources (like .bin files) from the GLTF directory.
+                var importOptions = new ImportOptions
                 {
-                    result = ImportGltf.Import(isGltf2 ? GltfSchemaVersion.GLTF2 : GltfSchemaVersion.GLTF1,
-                        reader, binLoader, request.options.baseOptions);
+                    DataLoader = new FileDataLoader(Path.GetDirectoryName(gltfFullPath))
+                };
+
+                using (var stream = new FileStream(gltfFullPath, FileMode.Open, FileAccess.Read))
+                {
+                    var importer = new GLTFSceneImporter(stream, importOptions);
+                    var enumerator = importer.LoadScene();
+                    while (enumerator.MoveNext()) { }
+
+                    root = importer.CreatedObject;
+
+                    // Check if import was successful
+                    if (root == null)
+                    {
+                        Debug.LogErrorFormat("GLTF import failed for {0}. No root object was created.", gltfFullPath);
+                        return;
+                    }
+
+                    // Extract assets from importer caches (if they exist)
+                    if (importer.MeshCache != null)
+                    {
+                        meshes.AddRange(importer.MeshCache
+                            .Where(m => m?.LoadedMesh != null)
+                            .Select(m => m.LoadedMesh));
+                    }
+
+                    if (importer.MaterialCache != null)
+                    {
+                        materials.AddRange(importer.MaterialCache
+                            .Where(m => m?.UnityMaterial != null)
+                            .Select(m => m.UnityMaterial));
+                    }
+
+                    if (importer.TextureCache != null)
+                    {
+                        textures.AddRange(importer.TextureCache
+                            .Where(t => t?.Texture != null)
+                            .Select(t => t.Texture));
+                    }
                 }
             }
             finally
@@ -137,7 +176,7 @@ namespace IcosaClientEditor
             }
 
             string baseName = PtUtils.GetPtAssetBaseName(request.IcosaAsset);
-            result.root.name = baseName;
+            root.name = baseName;
 
             // Create the asset (delete it first if it exists).
             if (File.Exists(assetFullPath))
@@ -164,21 +203,24 @@ namespace IcosaClientEditor
             newAsset.url = request.IcosaAsset.Url;
 
             // Ensure the imported object has a PtAssetObject component which references the PtAsset.
-            result.root.AddComponent<PtAssetObject>().asset = newAsset;
+            root.AddComponent<PtAssetObject>().asset = newAsset;
 
             // Add all the meshes to the PtAsset.
-            SaveMeshes(result.meshes, newAsset);
+            if (meshes.Count > 0)
+            {
+                SaveMeshes(meshes, newAsset);
+            }
 
             // If the asset has materials, save those to the PtAsset.
-            if (result.materials != null)
+            if (materials.Count > 0)
             {
-                SaveMaterials(result.materials, newAsset);
+                SaveMaterials(materials, newAsset);
             }
 
             // If the asset has textures, save those to the PtAsset.
-            if (result.textures != null)
+            if (textures.Count > 0)
             {
-                SaveTextures(result.textures, newAsset);
+                SaveTextures(textures, newAsset);
             }
 
             // Reimport is required to ensure custom asset displays correctly.
@@ -188,7 +230,7 @@ namespace IcosaClientEditor
             if (prefabToReplace)
             {
                 // Replace the existing prefab with our new object, without breaking prefab connections.
-                newPrefab = PrefabUtility.ReplacePrefab(result.root, prefabToReplace,
+                newPrefab = PrefabUtility.ReplacePrefab(root, prefabToReplace,
                     ReplacePrefabOptions.ReplaceNameBased);
                 AssetDatabase.RenameAsset(AssetDatabase.GetAssetPath(newPrefab), baseName);
             }
@@ -204,10 +246,10 @@ namespace IcosaClientEditor
                 }
 #if UNITY_2018_3_OR_NEWER
                 bool success;
-                newPrefab = PrefabUtility.SaveAsPrefabAsset(result.root, prefabLocalPath, out success);
+                newPrefab = PrefabUtility.SaveAsPrefabAsset(root, prefabLocalPath, out success);
                 Debug.Assert(success);
 #else
-      newPrefab = PrefabUtility.CreatePrefab(prefabLocalPath, result.root);
+      newPrefab = PrefabUtility.CreatePrefab(prefabLocalPath, root);
 #endif
             }
 
@@ -218,7 +260,7 @@ namespace IcosaClientEditor
                 Debug.LogErrorFormat("Could not get asset prefab reference for asset {0}", newAsset);
             }
 
-            GameObject.DestroyImmediate(result.root);
+            GameObject.DestroyImmediate(root);
 
             AssetDatabase.Refresh();
 
@@ -305,6 +347,26 @@ namespace IcosaClientEditor
             {
                 return string.Format("ImportRequest: {0}, {1} -> {2}", IcosaAsset, gltfLocalPath,
                     ptAssetLocalPath);
+            }
+        }
+
+        /// <summary>
+        /// Simple file loader for UnityGLTF that loads external resources from a base directory.
+        /// </summary>
+        private class FileDataLoader : IDataLoader
+        {
+            private string _baseDirectory;
+
+            public FileDataLoader(string baseDirectory)
+            {
+                _baseDirectory = baseDirectory;
+            }
+
+            public Task<Stream> LoadStreamAsync(string relativeFilePath)
+            {
+                string fullPath = Path.Combine(_baseDirectory, relativeFilePath);
+                var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
+                return Task.FromResult<Stream>(stream);
             }
         }
     }
