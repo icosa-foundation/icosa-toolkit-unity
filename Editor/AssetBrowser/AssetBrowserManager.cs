@@ -603,6 +603,10 @@ namespace IcosaClientEditor
             {
                 extension = GuessExtensionForFormat(formatType);
             }
+            else if (extension == ".obj")
+            {
+                extension = ".icosa-obj";
+            }
 
             string fileName = baseName + extension;
 
@@ -623,7 +627,7 @@ namespace IcosaClientEditor
             switch (formatType)
             {
                 case IcosaFormatType.OBJ:
-                    return ".obj";
+                    return ".icosa-obj";
                 case IcosaFormatType.GLTF:
                 case IcosaFormatType.GLTF_2:
                     return ".gltf";

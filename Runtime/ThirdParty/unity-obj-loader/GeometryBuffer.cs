@@ -173,7 +173,9 @@ public class GeometryBuffer
                 k++;
             }
 
-            Mesh m = (gs[i].GetComponent(typeof(MeshFilter)) as MeshFilter).mesh;
+            MeshFilter meshFilter = gs[i].GetComponent(typeof(MeshFilter)) as MeshFilter;
+            Mesh m = new Mesh();
+            meshFilter.sharedMesh = m;
             m.vertices = tvertices;
             if (hasUVs) m.uv = tuvs;
             if (objectHasNormals) m.normals = tnormals;

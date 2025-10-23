@@ -45,6 +45,9 @@ public class OBJ : MonoBehaviour
     private string mtllib;
     private GeometryBuffer buffer;
     bool finished = false;
+    private readonly List<string> loadedResourcePaths = new List<string>();
+
+    public IReadOnlyList<string> LoadedResourcePaths => loadedResourcePaths;
 
     // Compiled regex patterns for performance
     private static readonly Regex RegexWhitespaces = new Regex(@"\s+", RegexOptions.Compiled);
@@ -62,22 +65,70 @@ public class OBJ : MonoBehaviour
 
     public void BeginLoad(string path)
     {
-        buffer = new GeometryBuffer();
+        PrepareForLoad();
         StartCoroutine(_Load(path));
     }
 
     public Task BeginLoadAsync(string path)
     {
         var tcs = new TaskCompletionSource<bool>();
-        buffer = new GeometryBuffer();
+        PrepareForLoad();
         StartCoroutine(LoadAsyncWrapper(path, tcs));
         return tcs.Task;
+    }
+
+    private void PrepareForLoad()
+    {
+        buffer = new GeometryBuffer();
+        materialData = null;
+        mtllib = null;
+        finished = false;
+        loadedResourcePaths.Clear();
+        basepath = string.Empty;
     }
 
     private IEnumerator LoadAsyncWrapper(string path, TaskCompletionSource<bool> tcs)
     {
         yield return _Load(path);
         tcs.SetResult(true);
+    }
+
+    public GameObject LoadFromFileSync(string objFilePath)
+    {
+        if (string.IsNullOrEmpty(objFilePath))
+        {
+            throw new ArgumentException("OBJ file path must not be null or empty.", nameof(objFilePath));
+        }
+
+        PrepareForLoad();
+
+        string fullObjPath = Path.GetFullPath(objFilePath);
+        loadedResourcePaths.Add(fullObjPath);
+
+        basepath = Path.GetDirectoryName(fullObjPath) ?? string.Empty;
+
+        string objData = File.ReadAllText(fullObjPath);
+        SetGeometryData(objData);
+
+        if (hasMaterials)
+        {
+            string mtlFullPath = ResolveRelativePath(mtllib);
+            if (!string.IsNullOrEmpty(mtlFullPath) && File.Exists(mtlFullPath))
+            {
+                loadedResourcePaths.Add(mtlFullPath);
+                string mtlData = File.ReadAllText(mtlFullPath);
+                SetMaterialData(mtlData);
+                LoadMaterialTexturesSync();
+            }
+            else
+            {
+                Debug.LogWarning($"MTL file '{mtllib}' referenced by OBJ but not found at {mtlFullPath}");
+            }
+        }
+
+        Build();
+        finished = true;
+        return gameObject;
     }
 
     private IEnumerator _Load(string path)
@@ -437,6 +488,75 @@ public class OBJ : MonoBehaviour
                     break;
             }
         }
+    }
+
+    private void LoadMaterialTexturesSync()
+    {
+        if (materialData == null)
+        {
+            return;
+        }
+
+        foreach (MaterialData material in materialData)
+        {
+            if (!string.IsNullOrEmpty(material.diffuseTexPath))
+            {
+                material.diffuseTex = LoadTextureFromFileSync(material.diffuseTexPath);
+            }
+
+            if (!string.IsNullOrEmpty(material.bumpTexPath))
+            {
+                material.bumpTex = LoadTextureFromFileSync(material.bumpTexPath);
+            }
+        }
+    }
+
+    private Texture2D LoadTextureFromFileSync(string relativePath)
+    {
+        string fullPath = ResolveRelativePath(relativePath);
+        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
+        {
+            Debug.LogWarning($"Texture '{relativePath}' referenced by OBJ but not found at {fullPath}");
+            return null;
+        }
+
+        try
+        {
+            byte[] fileBytes = File.ReadAllBytes(fullPath);
+            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true);
+            if (!tex.LoadImage(fileBytes))
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+                Debug.LogWarning($"Failed to load texture data from {fullPath}");
+                return null;
+            }
+
+            tex.name = Path.GetFileNameWithoutExtension(relativePath);
+            loadedResourcePaths.Add(fullPath);
+            return tex;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"Exception loading texture '{relativePath}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private string ResolveRelativePath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath)) return relativePath;
+        if (Path.IsPathRooted(relativePath))
+        {
+            return Path.GetFullPath(relativePath);
+        }
+
+        string baseDirectory = basepath ?? string.Empty;
+        if (string.IsNullOrEmpty(baseDirectory))
+        {
+            return Path.GetFullPath(relativePath);
+        }
+
+        return Path.GetFullPath(Path.Combine(baseDirectory, relativePath));
     }
 
     private static Shader FindShaderOrFallback(string primary, params string[] fallbacks)
