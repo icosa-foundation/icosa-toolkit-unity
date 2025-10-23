@@ -547,11 +547,13 @@ namespace IcosaClientEditor
             };
 
             EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
-            IcosaMainInternal.Instance.FetchFormatFiles(asset, bestFormat.formatType,
+            IcosaFormatType requestedFormatType = bestFormat.formatType;
+
+            IcosaMainInternal.Instance.FetchFormatFiles(asset, requestedFormatType,
                 (IcosaAsset resultAsset, IcosaStatus status) =>
                 {
                     EditorUtility.ClearProgressBar();
-                    OnFetchFinished(status, resultAsset, ptAssetLocalPath, options);
+                    OnFetchFinished(status, resultAsset, requestedFormatType, ptAssetLocalPath, options);
                 }, progressCallback);
         }
 
@@ -564,7 +566,7 @@ namespace IcosaClientEditor
             thumbnailCache.Clear();
         }
 
-        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset,
+        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset, IcosaFormatType formatType,
             string ptAssetLocalPath, EditTimeImportOptions options)
         {
             if (!status.ok)
@@ -583,7 +585,25 @@ namespace IcosaClientEditor
 
             string absPath = PtUtils.ToAbsolutePath(downloadLocalPath);
 
-            string extension = ".gltf";
+            IcosaFormat formatToUnpack = asset.GetFormatIfExists(formatType);
+            if (formatToUnpack == null)
+            {
+                Debug.LogError($"Requested format {formatType} not available for asset {asset.displayName}. Cannot import.");
+                return;
+            }
+
+            if (formatToUnpack.root == null)
+            {
+                Debug.LogError($"Requested format {formatType} for asset {asset.displayName} has no root file. Cannot import.");
+                return;
+            }
+
+            string extension = Path.GetExtension(formatToUnpack.root.relativePath);
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = GuessExtensionForFormat(formatType);
+            }
+
             string fileName = baseName + extension;
 
             // We have to place an import request so that IcosaImporter does the right thing when it sees the new file.
@@ -591,20 +611,25 @@ namespace IcosaClientEditor
                 downloadLocalPath + "/" + fileName, ptAssetLocalPath, options, asset));
 
             // Now unpackage it. GltfProcessor will pick it up automatically.
-            IcosaFormat formatToUnpack = asset.GetBestFormat();
-            if (formatToUnpack != null)
-            {
-                UnpackPackageToFolder(formatToUnpack, absPath, fileName);
-            }
-            else
-            {
-                Debug.LogError($"No format to unpack for asset {asset.displayName}");
-                return;
-            }
+            UnpackPackageToFolder(formatToUnpack, absPath, fileName);
 
             PtDebug.LogFormat("ABM: Successfully downloaded {0} to {1}", asset, absPath);
             AssetDatabase.Refresh();
             if (null != refreshCallback) refreshCallback();
+        }
+
+        private static string GuessExtensionForFormat(IcosaFormatType formatType)
+        {
+            switch (formatType)
+            {
+                case IcosaFormatType.OBJ:
+                    return ".obj";
+                case IcosaFormatType.GLTF:
+                case IcosaFormatType.GLTF_2:
+                    return ".gltf";
+                default:
+                    return ".gltf";
+            }
         }
 
         private void UnpackPackageToFolder(IcosaFormat package, string destFolder, string mainFileName)
