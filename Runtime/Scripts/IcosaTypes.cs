@@ -138,33 +138,34 @@ namespace IcosaApiClient
 
         /// <summary>
         /// Gets the best format for download, filtering by isPreferredForDownload.
-        /// Priority: GLTF2 > GLTF > OBJ (among preferred formats only).
-        /// Returns null if no preferred format is available.
+        /// Priority: GLTF2 > OBJ (among preferred formats first, then all formats).
+        /// Returns null if no supported format is available.
         /// </summary>
         public IcosaFormat GetBestFormat()
         {
             // Filter to only preferred formats
             var preferredFormats = formats.Where(f => f != null && f.isPreferredForDownload).ToList();
 
-
-            if (preferredFormats.Count == 0)
-            {
-                // Fallback: no preferred formats, return null
-                return null;
-            }
-
-            // Prioritize: GLTF2 > GLTF > OBJ > any other format
+            // First check preferred formats: GLTF2 > OBJ
             var gltf2 = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF_2);
             if (gltf2 != null) return gltf2;
-
-            var gltf = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF);
-            if (gltf != null) return gltf;
 
             var obj = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.OBJ);
             if (obj != null) return obj;
 
-            // Return first preferred format as fallback
-            return preferredFormats[0];
+            // No supported format found in preferred formats, fall back to checking all formats
+            UnityEngine.Debug.LogWarning($"No preferred supported format found for asset '{displayName}'. Falling back to checking all available formats.");
+
+            var allFormats = formats.Where(f => f != null).ToList();
+
+            gltf2 = allFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF_2);
+            if (gltf2 != null) return gltf2;
+
+            obj = allFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.OBJ);
+            if (obj != null) return obj;
+
+            // No supported format available at all
+            return null;
         }
 
         /// <summary>

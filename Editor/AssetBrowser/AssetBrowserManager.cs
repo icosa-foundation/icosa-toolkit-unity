@@ -628,10 +628,13 @@ namespace IcosaClientEditor
             {
                 case IcosaFormatType.OBJ:
                     return ".icosa-obj";
-                case IcosaFormatType.GLTF:
                 case IcosaFormatType.GLTF_2:
                     return ".gltf";
+                case IcosaFormatType.GLTF:
+                    Debug.LogWarning($"GLTF version 1 is no longer supported. Format: {formatType}");
+                    return ".gltf";
                 default:
+                    Debug.LogWarning($"Unsupported format type: {formatType}");
                     return ".gltf";
             }
         }
