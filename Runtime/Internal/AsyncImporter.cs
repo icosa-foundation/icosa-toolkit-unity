@@ -144,6 +144,13 @@ namespace IcosaClientInternal
             operation.callback = callback;
             operation.status = IcosaStatus.Success();
             operation.loader = new FormatLoader(format);
+
+            // Create ImportOptions on main thread since its constructor calls Resources.Load()
+            operation.unityGltfImportOptions = new ImportOptions
+            {
+                DataLoader = new FormatDataLoader(operation.loader)
+            };
+
             if (Application.isPlaying)
             {
                 ThreadPool.QueueUserWorkItem(new WaitCallback(BackgroundThreadProc), operation);
@@ -163,16 +170,11 @@ namespace IcosaClientInternal
             try
             {
                 // Create a stream from the in-memory GLTF data
-                var gltfStream = new MemoryStream(operation.format.root.contents);
+                // This is thread-safe and can be done here
+                operation.gltfStream = new MemoryStream(operation.format.root.contents);
 
-                // Create import options with our data loader adapter
-                var importOptions = new ImportOptions
-                {
-                    DataLoader = new FormatDataLoader(operation.loader)
-                };
-
-                // Create the GLTFSceneImporter. The constructor parses the GLTF data (thread-safe).
-                operation.gltfImporter = new GLTFSceneImporter(gltfStream, importOptions);
+                // Note: GLTFSceneImporter constructor calls Unity APIs (e.g., QualitySettings.get_activeColorSpace)
+                // which require the main thread, so we defer that to the Update() method
             }
             catch (Exception ex)
             {
@@ -212,6 +214,13 @@ namespace IcosaClientInternal
 
             try
             {
+                // Create the GLTFSceneImporter on the main thread since its constructor
+                // calls Unity APIs that require the main thread
+                if (operation.gltfImporter == null)
+                {
+                    operation.gltfImporter = new GLTFSceneImporter(operation.gltfStream, operation.unityGltfImportOptions);
+                }
+
                 // Use UnityGLTF's LoadScene to create the GameObject hierarchy.
                 // This must run on the main thread.
                 var sceneEnumerator = operation.gltfImporter.LoadScene();
@@ -292,7 +301,13 @@ namespace IcosaClientInternal
             public AsyncImportCallback callback;
 
             /// <summary>
+            /// The GLTF data stream, created on background thread.
+            /// </summary>
+            public MemoryStream gltfStream;
+
+            /// <summary>
             /// The GLTFSceneImporter instance used for importing the GLTF data.
+            /// Created on main thread since constructor calls Unity APIs.
             /// </summary>
             public GLTFSceneImporter gltfImporter;
 
@@ -300,6 +315,11 @@ namespace IcosaClientInternal
             /// The loader used to load resources for the import.
             /// </summary>
             public IUriLoader loader;
+
+            /// <summary>
+            /// UnityGLTF import options, created on main thread.
+            /// </summary>
+            public ImportOptions unityGltfImportOptions;
 
             /// <summary>
             /// Status of the import operation.
