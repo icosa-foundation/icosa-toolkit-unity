@@ -16,7 +16,7 @@ namespace IcosaClientInternal.model.export
 {
     class ExportUtils
     {
-        public static readonly string OBJ_FILENAME = "model.obj";
+        public static readonly string OBJ_FILENAME = "model.icosa-obj";
         public static readonly string MTL_FILENAME = "materials.mtl";
         public static readonly string THUMBNAIL_FILENAME = "thumbnail.png";
         public static readonly string ICOSA_FILENAME = "model.poly";

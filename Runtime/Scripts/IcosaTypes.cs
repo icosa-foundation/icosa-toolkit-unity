@@ -14,6 +14,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using IcosaClientInternal;
 using System.Collections;
@@ -30,10 +31,16 @@ namespace IcosaApiClient
     [AutoStringifiable]
     public class IcosaAsset
     {
-        /// <summary>
-        /// Format of the URL to a particular asset, given its ID.
-        /// </summary>
-        private const string URL_FORMAT = "https://icosa.gallery/view/{0}";
+
+        public static string API_BASE_URL => "https://api.icosa.gallery";
+        public static string WEBSITE_BASE_URL => "https://icosa.gallery";
+        public static string USER_PROFILE_BASE_URL => $"{WEBSITE_BASE_URL}/user";
+        public static string ASSET_BASE_URL => $"{WEBSITE_BASE_URL}/view";
+
+        public string Url => $"{ASSET_BASE_URL}/{assetId}";
+        public string AuthorUrl => $"{USER_PROFILE_BASE_URL}/{authorId}";
+
+
 
         /// <summary>
         /// For backwards compatibility with Poly API - same as assetId but with "assets/" prefix.
@@ -57,6 +64,11 @@ namespace IcosaApiClient
         /// Name of the asset's author.
         /// </summary>
         public string authorName;
+
+        /// <summary>
+        /// ID of the asset's author.
+        /// </summary>
+        public string authorId;
 
         /// <summary>
         /// Human-readable description of the asset.
@@ -125,6 +137,38 @@ namespace IcosaApiClient
         }
 
         /// <summary>
+        /// Gets the best format for download, filtering by isPreferredForDownload.
+        /// Priority: GLTF2 > OBJ (among preferred formats first, then all formats).
+        /// Returns null if no supported format is available.
+        /// </summary>
+        public IcosaFormat GetBestFormat()
+        {
+            // Filter to only preferred formats
+            var preferredFormats = formats.Where(f => f != null && f.isPreferredForDownload).ToList();
+
+            // First check preferred formats: GLTF2 > OBJ
+            var gltf2 = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF_2);
+            if (gltf2 != null) return gltf2;
+
+            var obj = preferredFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.OBJ);
+            if (obj != null) return obj;
+
+            // No supported format found in preferred formats, fall back to checking all formats
+            UnityEngine.Debug.LogWarning($"No preferred supported format found for asset '{displayName}'. Falling back to checking all available formats.");
+
+            var allFormats = formats.Where(f => f != null).ToList();
+
+            gltf2 = allFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.GLTF_2);
+            if (gltf2 != null) return gltf2;
+
+            obj = allFormats.FirstOrDefault(f => f.formatType == IcosaFormatType.OBJ);
+            if (obj != null) return obj;
+
+            // No supported format available at all
+            return null;
+        }
+
+        /// <summary>
         /// Returns whether the asset is known to be mutable, due to its visibility.
         /// Public and unlisted assets are immutable. Private assets are mutable.
         /// </summary>
@@ -133,17 +177,96 @@ namespace IcosaApiClient
         /// Depending on your use-case, you may wish to frequently re-download mutable assets, if you expect them to be
         /// changed while your app is running.
         /// </remarks>
-        public bool IsMutable
+        public bool IsMutable => visibility == IcosaVisibility.PRIVATE || visibility == IcosaVisibility.UNSPECIFIED;
+
+        public string FriendlyShortLicenseName
         {
-            get { return visibility == IcosaVisibility.PRIVATE || visibility == IcosaVisibility.UNSPECIFIED; }
+            get
+            {
+                switch (license)
+                {
+                    case IcosaAssetLicense.UNKNOWN:
+                        return "Unknown";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY:
+                        return "CC-BY";
+                    case IcosaAssetLicense.ALL_RIGHTS_RESERVED:
+                        return "All Rights Reserved";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_ND:
+                        return "CC-BY-ND";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_SA:
+                        return "CC-BY-SA";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC:
+                        return "CC-BY-NC";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_ND:
+                        return "CC-BY-NC-ND";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_SA:
+                        return "CC-BY-NC-SA";
+                    case IcosaAssetLicense.CC0:
+                        return "CC0";
+                }
+
+                return "Unrecognized License";
+            }
         }
 
-        /// <summary>
-        /// Returns the Icosa url of the asset.
-        /// </summary>
-        public string Url
+        public string FriendlyLongLicenseName
         {
-            get { return string.Format(URL_FORMAT, assetId); }
+            get
+            {
+                switch (license)
+                {
+                    case IcosaAssetLicense.UNKNOWN:
+                        return "Unknown";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY:
+                        return "Creative Commons Attribution";
+                    case IcosaAssetLicense.ALL_RIGHTS_RESERVED:
+                        return "All Rights Reserved";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_ND:
+                        return "Creative Commons Attribution No Derivatives";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_SA:
+                        return "Creative Commons Attribution Share Alike";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC:
+                        return "Creative Commons Attribution Non Commercial";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_ND:
+                        return "Creative Commons Attribution Non Commercial No Derivatives";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_SA:
+                        return "Creative Commons Attribution Non Commercial Share Alike";
+                    case IcosaAssetLicense.CC0:
+                        return "CC0";
+                }
+
+                return "Unrecognized License";
+            }
+        }
+
+        public string LicenseUrl
+        {
+            get
+            {
+                switch (license)
+                {
+                    case IcosaAssetLicense.UNKNOWN:
+                        return "Unknown";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY:
+                        return "https://creativecommons.org/licenses/by/3.0/legalcode";
+                    case IcosaAssetLicense.ALL_RIGHTS_RESERVED:
+                        return "https://en.wikipedia.org/wiki/All_rights_reserved";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_ND:
+                        return "https://creativecommons.org/licenses/by-nd/3.0/legalcode";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_SA:
+                        return "https://creativecommons.org/licenses/by-sa/3.0/legalcode";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC:
+                        return "https://creativecommons.org/licenses/by-nc/3.0/legalcode";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_ND:
+                        return "https://creativecommons.org/licenses/by-nc-nd/3.0/legalcode";
+                    case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_SA:
+                        return "https://creativecommons.org/licenses/by-nc-sa/3.0/legalcode";
+                    case IcosaAssetLicense.CC0:
+                        return "https://creativecommons.org/publicdomain/zero/1.0/legalcode";
+                }
+
+                return "";
+            }
         }
 
         /// <summary>
@@ -160,41 +283,33 @@ namespace IcosaApiClient
                         licenceText = "Unknown";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY:
-                        licenceText = "Creative Commons CC-BY\n" +
-                                      "https://creativecommons.org/licenses/by/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.ALL_RIGHTS_RESERVED:
-                        licenceText = "All Rights Reserved";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY_ND:
-                        licenceText = "Creative Commons CC-BY-ND\n" +
-                                      "https://creativecommons.org/licenses/by-nd/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY_SA:
-                        licenceText = "Creative Commons CC-BY-SA\n" +
-                                      "https://creativecommons.org/licenses/by-sa/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC:
-                        licenceText = "Creative Commons CC-BY-NC\n" +
-                                      "https://creativecommons.org/licenses/by-nc/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_ND:
-                        licenceText = "Creative Commons CC-BY-NC-ND\n" +
-                                      "https://creativecommons.org/licenses/by-nc-nd/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CREATIVE_COMMONS_BY_NC_SA:
-                        licenceText = "Creative Commons CC-BY-NC-SA\n" +
-                                      "https://creativecommons.org/licenses/by-nc-sa/3.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     case IcosaAssetLicense.CC0:
-                        licenceText = "Creative Commons CC0 (Public Domain)\n" +
-                                      "https://creativecommons.org/publicdomain/zero/1.0/legalcode";
+                        licenceText = $"{FriendlyShortLicenseName}\n{LicenseUrl}";
                         break;
                     default:
-                        licenceText = "All Rights Reserved";
+                        licenceText = $"All Rights Reserved\n{LicenseUrl}";
                         break;
                 }
-
                 return AttributionGeneration.GenerateAttributionString(displayName, authorName, Url, licenceText);
             }
         }
@@ -236,6 +351,11 @@ namespace IcosaApiClient
         /// Complexity of this format.
         /// </summary>
         public IcosaFormatComplexity formatComplexity;
+
+        /// <summary>
+        /// Whether this format is preferred for download according to the API.
+        /// </summary>
+        public bool isPreferredForDownload;
 
         public override string ToString()
         {

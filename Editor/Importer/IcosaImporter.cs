@@ -18,6 +18,7 @@ using UnityEditor;
 using System.IO;
 using System.Text.RegularExpressions;
 using System;
+using System.Linq;
 using IcosaApiClient;
 using IcosaClientInternal;
 
@@ -113,22 +114,21 @@ namespace IcosaClientEditor
                 prefabToReplace = assetToReplace.assetPrefab;
             }
 
-            // Determine if file is glTF2 or glTF1.
-            bool isGltf2 = Path.GetExtension(request.gltfLocalPath) == ".gltf2";
-
-            // First, import the GLTF and build a GameObject from it.
+            // Load the GLTF GameObject that Unity already imported via GLTFImporter.
             EditorUtility.DisplayProgressBar(PROGRESS_BAR_TITLE, PROGRESS_BAR_TEXT, 0.5f);
-            ImportGltf.GltfImportResult result = null;
+
+            GameObject importedGltfObject = null;
             try
             {
-                // Use a SanitizedPath stream loader because any format file we have downloaded and saved to disk we
-                // have replaced the original relative path string with the MD5 string hash. This custom stream loader
-                // will always convert uris passed to it to this hash value, and read them from there.
-                IUriLoader binLoader = new HashedPathBufferedStreamLoader(Path.GetDirectoryName(gltfFullPath));
-                using (TextReader reader = new StreamReader(gltfFullPath))
+                // Unity's GLTFImporter has already imported the GLTF file.
+                // Load the main GameObject from the asset database.
+                importedGltfObject = AssetDatabase.LoadMainAssetAtPath(request.gltfLocalPath) as GameObject;
+
+                if (importedGltfObject == null)
                 {
-                    result = ImportGltf.Import(isGltf2 ? GltfSchemaVersion.GLTF2 : GltfSchemaVersion.GLTF1,
-                        reader, binLoader, request.options.baseOptions);
+                    Debug.LogErrorFormat("Could not load imported GLTF GameObject from {0}. " +
+                        "Make sure Unity's GLTFImporter processed the file.", request.gltfLocalPath);
+                    return;
                 }
             }
             finally
@@ -137,7 +137,6 @@ namespace IcosaClientEditor
             }
 
             string baseName = PtUtils.GetPtAssetBaseName(request.IcosaAsset);
-            result.root.name = baseName;
 
             // Create the asset (delete it first if it exists).
             if (File.Exists(assetFullPath))
@@ -154,7 +153,7 @@ namespace IcosaClientEditor
 
             Directory.CreateDirectory(Path.GetDirectoryName(assetFullPath));
 
-            // Create the new PtAsset and fill it in.
+            // Create the new PtAsset with metadata only (no embedded meshes/materials/textures).
             AssetDatabase.CreateAsset(ScriptableObject.CreateInstance<PtAsset>(), assetLocalPath);
             PtAsset newAsset = AssetDatabase.LoadAssetAtPath<PtAsset>(assetLocalPath);
             newAsset.name = baseName;
@@ -163,62 +162,62 @@ namespace IcosaClientEditor
             newAsset.license = request.IcosaAsset.license;
             newAsset.url = request.IcosaAsset.Url;
 
-            // Ensure the imported object has a PtAssetObject component which references the PtAsset.
-            result.root.AddComponent<PtAssetObject>().asset = newAsset;
-
-            // Add all the meshes to the PtAsset.
-            SaveMeshes(result.meshes, newAsset);
-
-            // If the asset has materials, save those to the PtAsset.
-            if (result.materials != null)
-            {
-                SaveMaterials(result.materials, newAsset);
-            }
-
-            // If the asset has textures, save those to the PtAsset.
-            if (result.textures != null)
-            {
-                SaveTextures(result.textures, newAsset);
-            }
-
-            // Reimport is required to ensure custom asset displays correctly.
-            AssetDatabase.ImportAsset(assetLocalPath);
-
+            // Create a prefab variant from the imported GLTF GameObject.
+            // The prefab will reference the GLTF's meshes/materials/textures, not embed them.
             GameObject newPrefab;
+            string prefabLocalPath = Regex.Replace(assetLocalPath, "\\.asset$", ".prefab");
+            if (!prefabLocalPath.EndsWith(".prefab"))
+            {
+                Debug.LogErrorFormat("Error: failed to compute prefab path for {0}", assetLocalPath);
+                return;
+            }
+
+            // Instantiate the imported GLTF GameObject in the scene temporarily.
+            GameObject tempInstance = PrefabUtility.InstantiatePrefab(importedGltfObject) as GameObject;
+            if (tempInstance == null)
+            {
+                Debug.LogErrorFormat("Failed to instantiate GLTF GameObject for prefab creation: {0}", request.gltfLocalPath);
+                return;
+            }
+
+            tempInstance.name = baseName;
+
+            // Add PtAssetObject component to link back to the PtAsset.
+            tempInstance.AddComponent<PtAssetObject>().asset = newAsset;
+
             if (prefabToReplace)
             {
-                // Replace the existing prefab with our new object, without breaking prefab connections.
-                newPrefab = PrefabUtility.ReplacePrefab(result.root, prefabToReplace,
+#if UNITY_2018_3_OR_NEWER
+                // Replace the existing prefab (Unity 2018.3+).
+                newPrefab = PrefabUtility.SaveAsPrefabAsset(tempInstance, AssetDatabase.GetAssetPath(prefabToReplace));
+                AssetDatabase.RenameAsset(AssetDatabase.GetAssetPath(newPrefab), baseName);
+#else
+                // Replace the existing prefab (legacy API).
+                newPrefab = PrefabUtility.ReplacePrefab(tempInstance, prefabToReplace,
                     ReplacePrefabOptions.ReplaceNameBased);
                 AssetDatabase.RenameAsset(AssetDatabase.GetAssetPath(newPrefab), baseName);
+#endif
             }
             else
             {
-                // Create a new prefab.
-                // Prefab path is the same as the asset path but with the extension changed to '.prefab'.
-                string prefabLocalPath = Regex.Replace(assetLocalPath, "\\.asset$", ".prefab");
-                if (!prefabLocalPath.EndsWith(".prefab"))
-                {
-                    Debug.LogErrorFormat("Error: failed to compute prefab path for {0}", assetLocalPath);
-                    return;
-                }
 #if UNITY_2018_3_OR_NEWER
-                bool success;
-                newPrefab = PrefabUtility.SaveAsPrefabAsset(result.root, prefabLocalPath, out success);
-                Debug.Assert(success);
+                // Create a new prefab (Unity 2018.3+).
+                newPrefab = PrefabUtility.SaveAsPrefabAsset(tempInstance, prefabLocalPath);
 #else
-      newPrefab = PrefabUtility.CreatePrefab(prefabLocalPath, result.root);
+                // Create a new prefab (legacy API).
+                newPrefab = PrefabUtility.CreatePrefab(prefabLocalPath, tempInstance);
 #endif
             }
 
-            // Now ensure the asset points to the prefab.
+            // Clean up the temporary instance.
+            GameObject.DestroyImmediate(tempInstance);
+
+            // Link the PtAsset to the prefab.
             newAsset.assetPrefab = newPrefab;
             if (newAsset.assetPrefab == null)
             {
-                Debug.LogErrorFormat("Could not get asset prefab reference for asset {0}", newAsset);
+                Debug.LogErrorFormat("Could not create prefab for asset {0}", newAsset);
             }
-
-            GameObject.DestroyImmediate(result.root);
 
             AssetDatabase.Refresh();
 
@@ -307,5 +306,6 @@ namespace IcosaClientEditor
                     ptAssetLocalPath);
             }
         }
+
     }
 }
