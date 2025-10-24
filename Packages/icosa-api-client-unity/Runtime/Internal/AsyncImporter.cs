@@ -19,7 +19,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
+using UnityGLTF;
+using UnityGLTF.Loader;
 
 namespace IcosaClientInternal
 {
@@ -44,6 +47,78 @@ namespace IcosaClientInternal
         private Queue<ImportOperation> finishedOperations = new Queue<ImportOperation>();
 
         private object finishedOperationsLock = new byte[0];
+
+        /// <summary>
+        /// Adapter to bridge IUriLoader to UnityGLTF's IDataLoader interface.
+        /// This allows UnityGLTF to load external resources from the in-memory format data.
+        /// </summary>
+        private class FormatDataLoader : IDataLoader
+        {
+            private IUriLoader _uriLoader;
+
+            public FormatDataLoader(IUriLoader uriLoader)
+            {
+                _uriLoader = uriLoader;
+            }
+
+            public Task<Stream> LoadStreamAsync(string relativeFilePath)
+            {
+                try
+                {
+                    var bufferReader = _uriLoader.Load(relativeFilePath);
+                    if (bufferReader == null)
+                    {
+                        throw new FileNotFoundException($"Resource not found: {relativeFilePath}");
+                    }
+
+                    // Get the content length if available
+                    long contentLength = bufferReader.GetContentLength();
+
+                    // Read all data from IBufferReader into a MemoryStream
+                    MemoryStream memoryStream;
+                    if (contentLength > 0)
+                    {
+                        // If we know the length, allocate the exact size
+                        byte[] data = new byte[contentLength];
+                        bufferReader.Read(data, destinationOffset: 0, readStart: 0, readSize: (int)contentLength);
+                        memoryStream = new MemoryStream(data, writable: false);
+                    }
+                    else
+                    {
+                        // Unknown length, read in chunks
+                        memoryStream = new MemoryStream();
+                        byte[] buffer = new byte[4096];
+                        int position = 0;
+                        int chunkSize = buffer.Length;
+
+                        // Keep reading chunks until we've read everything
+                        // Note: IBufferReader doesn't tell us when we're at EOF, so we read the max possible
+                        try
+                        {
+                            while (true)
+                            {
+                                bufferReader.Read(buffer, destinationOffset: 0, readStart: position, readSize: chunkSize);
+                                memoryStream.Write(buffer, 0, chunkSize);
+                                position += chunkSize;
+                            }
+                        }
+                        catch
+                        {
+                            // End of data reached
+                        }
+
+                        memoryStream.Position = 0;
+                    }
+
+                    return Task.FromResult<Stream>(memoryStream);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"Error loading resource '{relativeFilePath}': {ex.Message}");
+                    return Task.FromException<Stream>(ex);
+                }
+            }
+        }
 
         /// <summary>
         /// Must be called to set up this object before use.
@@ -87,15 +162,17 @@ namespace IcosaClientInternal
             ImportOperation operation = (ImportOperation)userData;
             try
             {
-                using (TextReader reader =
-                       new StreamReader(new MemoryStream(operation.format.root.contents), Encoding.UTF8))
+                // Create a stream from the in-memory GLTF data
+                var gltfStream = new MemoryStream(operation.format.root.contents);
+
+                // Create import options with our data loader adapter
+                var importOptions = new ImportOptions
                 {
-                    operation.importState = ImportGltf.BeginImport(
-                        operation.format.formatType == IcosaFormatType.GLTF
-                            ? GltfSchemaVersion.GLTF1
-                            : GltfSchemaVersion.GLTF2,
-                        reader, operation.loader, operation.options);
-                }
+                    DataLoader = new FormatDataLoader(operation.loader)
+                };
+
+                // Create the GLTFSceneImporter. The constructor parses the GLTF data (thread-safe).
+                operation.gltfImporter = new GLTFSceneImporter(gltfStream, importOptions);
             }
             catch (Exception ex)
             {
@@ -135,25 +212,30 @@ namespace IcosaClientInternal
 
             try
             {
-                IEnumerable meshCreator;
-                ImportGltf.GltfImportResult result = ImportGltf.EndImport(operation.importState,
-                    operation.loader, out meshCreator);
+                // Use UnityGLTF's LoadScene to create the GameObject hierarchy.
+                // This must run on the main thread.
+                var sceneEnumerator = operation.gltfImporter.LoadScene();
 
                 if (!operation.options.clientThrottledMainThread)
                 {
-                    // If we're not in throttled mode, create all the meshes immediately by exhausting
-                    // the meshCreator enumeration. Otherwise, it's the caller's responsibility to
-                    // do this.
-                    foreach (var unused in meshCreator)
+                    // If we're not in throttled mode, create everything immediately by exhausting
+                    // the LoadScene enumerator.
+                    while (sceneEnumerator.MoveNext())
                     {
-                        /* empty */
+                        /* Process all import steps immediately */
                     }
 
-                    meshCreator = null;
+                    // All done, no meshCreator needed for callback
+                    GameObject root = operation.gltfImporter.CreatedObject;
+                    operation.callback(IcosaStatus.Success(), root, meshCreator: null);
                 }
-
-                // Success.
-                operation.callback(IcosaStatus.Success(), result.root, meshCreator);
+                else
+                {
+                    // In throttled mode, wrap the enumerator so the caller can exhaust it incrementally.
+                    // We need to track when it's complete to get the root object.
+                    IEnumerable meshCreator = WrapSceneEnumerator(sceneEnumerator, operation.gltfImporter);
+                    operation.callback(IcosaStatus.Success(), root: null, meshCreator);
+                }
             }
             catch (Exception ex)
             {
@@ -162,6 +244,20 @@ namespace IcosaClientInternal
                 operation.callback(IcosaStatus.Error("Failed to convert import to Unity objects.", ex),
                     root: null, meshCreator: null);
             }
+        }
+
+        /// <summary>
+        /// Wraps the UnityGLTF scene enumerator for throttled mode.
+        /// This allows the caller to exhaust the enumerator incrementally (e.g., one step per frame).
+        /// </summary>
+        private static IEnumerable WrapSceneEnumerator(IEnumerator sceneEnumerator, GLTFSceneImporter importer)
+        {
+            while (sceneEnumerator.MoveNext())
+            {
+                yield return null;
+            }
+            // When complete, yield the created root object
+            yield return importer.CreatedObject;
         }
 
         /// <summary>
@@ -196,9 +292,9 @@ namespace IcosaClientInternal
             public AsyncImportCallback callback;
 
             /// <summary>
-            /// The import state as returned from ImportGltf.BeginImport.
+            /// The GLTFSceneImporter instance used for importing the GLTF data.
             /// </summary>
-            public ImportGltf.ImportState importState;
+            public GLTFSceneImporter gltfImporter;
 
             /// <summary>
             /// The loader used to load resources for the import.

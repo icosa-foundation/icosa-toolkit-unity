@@ -29,7 +29,6 @@ namespace IcosaClientEditor
     /// </summary>
     public class AssetBrowserManager
     {
-        private const string BASE_URL = "https://api.icosa.gallery";
         private const string CLIENT_SECRET = "49385a554c3274635d6c47327d3a3c557d67793e79267852";
 
         private const string CLIENT_ID = "3539303a373737363831393b2178617c60227d7f7b7966252a74226e296f2d29174315175" +
@@ -100,7 +99,7 @@ namespace IcosaClientEditor
         private IcosaRequest requestToSendAfterAuth = null;
 
         private IcosaAuthConfig authConfig = new IcosaAuthConfig(
-            baseUrl: BASE_URL,
+            baseUrl: IcosaAsset.API_BASE_URL,
             apiKey: Deobfuscate(API_KEY),
             clientId: Deobfuscate(CLIENT_ID),
             clientSecret: Deobfuscate(CLIENT_SECRET));
@@ -533,42 +532,29 @@ namespace IcosaClientEditor
             PtDebug.LogFormat("ABM: starting to fetch asset {0} ({1}) -> {2}", asset.assetId, asset.displayName,
                 ptAssetLocalPath);
 
-            // Prefer glTF1 to glTF2.
-            // It used to be that no Poly assets had both formats, so the ordering did not matter.
-            // Blocks assets now have both glTF1 and glTF2. PT does not understand the glTF2 version,
-            // so the ordering matters a great deal.
-            IcosaFormat glTF2format = asset.GetFormatIfExists(IcosaFormatType.GLTF_2);
-            IcosaFormat glTFformat = asset.GetFormatIfExists(IcosaFormatType.GLTF);
+            // Get the best format based on API preferences and priority (GLTF2 > GLTF > OBJ).
+            IcosaFormat bestFormat = asset.GetBestFormat();
+
+            if (bestFormat == null)
+            {
+                Debug.LogError($"No preferred format available for asset {asset.displayName}. Cannot import.");
+                return;
+            }
 
             IcosaMainInternal.FetchProgressCallback progressCallback = (IcosaAsset assetBeingFetched, float progress) =>
             {
                 EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, progress);
             };
 
-            if (glTFformat != null)
-            {
-                EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
-                IcosaMainInternal.Instance.FetchFormatFiles(asset, IcosaFormatType.GLTF,
-                    (IcosaAsset resultAsset, IcosaStatus status) =>
-                    {
-                        EditorUtility.ClearProgressBar();
-                        OnFetchFinished(status, resultAsset, /*isGltf2*/ false, ptAssetLocalPath, options);
-                    }, progressCallback);
-            }
-            else if (glTF2format != null)
-            {
-                EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
-                IcosaMainInternal.Instance.FetchFormatFiles(asset, IcosaFormatType.GLTF_2,
-                    (IcosaAsset resultAsset, IcosaStatus status) =>
-                    {
-                        EditorUtility.ClearProgressBar();
-                        OnFetchFinished(status, resultAsset, /*isGltf2*/ true, ptAssetLocalPath, options);
-                    }, progressCallback);
-            }
-            else
-            {
-                Debug.LogError("Asset not in GLTF_2 or GLTF format. Can't import.");
-            }
+            EditorUtility.DisplayProgressBar(DOWNLOAD_PROGRESS_TITLE, DOWNLOAD_PROGRESS_TEXT, 0.0f);
+            IcosaFormatType requestedFormatType = bestFormat.formatType;
+
+            IcosaMainInternal.Instance.FetchFormatFiles(asset, requestedFormatType,
+                (IcosaAsset resultAsset, IcosaStatus status) =>
+                {
+                    EditorUtility.ClearProgressBar();
+                    OnFetchFinished(status, resultAsset, requestedFormatType, ptAssetLocalPath, options);
+                }, progressCallback);
         }
 
         /// <summary>
@@ -580,7 +566,7 @@ namespace IcosaClientEditor
             thumbnailCache.Clear();
         }
 
-        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset, bool isGltf2,
+        private void OnFetchFinished(IcosaStatus status, IcosaAsset asset, IcosaFormatType formatType,
             string ptAssetLocalPath, EditTimeImportOptions options)
         {
             if (!status.ok)
@@ -599,7 +585,29 @@ namespace IcosaClientEditor
 
             string absPath = PtUtils.ToAbsolutePath(downloadLocalPath);
 
-            string extension = isGltf2 ? ".gltf2" : ".gltf";
+            IcosaFormat formatToUnpack = asset.GetFormatIfExists(formatType);
+            if (formatToUnpack == null)
+            {
+                Debug.LogError($"Requested format {formatType} not available for asset {asset.displayName}. Cannot import.");
+                return;
+            }
+
+            if (formatToUnpack.root == null)
+            {
+                Debug.LogError($"Requested format {formatType} for asset {asset.displayName} has no root file. Cannot import.");
+                return;
+            }
+
+            string extension = Path.GetExtension(formatToUnpack.root.relativePath);
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = GuessExtensionForFormat(formatType);
+            }
+            else if (extension == ".obj")
+            {
+                extension = ".icosa-obj";
+            }
+
             string fileName = baseName + extension;
 
             // We have to place an import request so that IcosaImporter does the right thing when it sees the new file.
@@ -607,14 +615,28 @@ namespace IcosaClientEditor
                 downloadLocalPath + "/" + fileName, ptAssetLocalPath, options, asset));
 
             // Now unpackage it. GltfProcessor will pick it up automatically.
-            UnpackPackageToFolder(
-                isGltf2
-                    ? asset.GetFormatIfExists(IcosaFormatType.GLTF_2)
-                    : asset.GetFormatIfExists(IcosaFormatType.GLTF), absPath, fileName);
+            UnpackPackageToFolder(formatToUnpack, absPath, fileName);
 
             PtDebug.LogFormat("ABM: Successfully downloaded {0} to {1}", asset, absPath);
             AssetDatabase.Refresh();
             if (null != refreshCallback) refreshCallback();
+        }
+
+        private static string GuessExtensionForFormat(IcosaFormatType formatType)
+        {
+            switch (formatType)
+            {
+                case IcosaFormatType.OBJ:
+                    return ".icosa-obj";
+                case IcosaFormatType.GLTF_2:
+                    return ".gltf";
+                case IcosaFormatType.GLTF:
+                    Debug.LogWarning($"GLTF version 1 is no longer supported. Format: {formatType}");
+                    return ".gltf";
+                default:
+                    Debug.LogWarning($"Unsupported format type: {formatType}");
+                    return ".gltf";
+            }
         }
 
         private void UnpackPackageToFolder(IcosaFormat package, string destFolder, string mainFileName)
@@ -623,27 +645,17 @@ namespace IcosaClientEditor
             // all the necessary resources are already in place.
 
             // Maintain a mapping of original file names to their corresponding hash.
-            StringBuilder fileMapSb = new StringBuilder();
             foreach (IcosaFile file in package.resources)
             {
-                // In order to avoid having to replicate the original directory structure of the
-                // asset (which might be incompatible with our file system, or even maliciously constructed),
-                // we replace the original path of each resource file with the MD5 hash of the path.
-                // That maintains uniqueness of paths and flattens the structure so that every resource
-                // can live in the same directory.
-                string path = Path.Combine(destFolder, IcosaInternalUtils.ConvertFilePathToHash(file.relativePath));
+                string path = Path.Combine(destFolder, file.relativePath);
                 if (file.contents != null)
                 {
                     File.WriteAllBytes(path, file.contents);
-                    fileMapSb.AppendFormat("{0} -> {1}\n", file.relativePath,
-                        IcosaInternalUtils.ConvertFilePathToHash(file.relativePath));
                 }
             }
 
             // Lastly, write the main file.
             File.WriteAllBytes(Path.Combine(destFolder, mainFileName), package.root.contents);
-            // Write the file mapping.
-            File.WriteAllText(Path.Combine(destFolder, "FileNameMapping.txt"), fileMapSb.ToString());
         }
 
         private bool PrepareDownload(IcosaAsset asset, out string baseName, out string downloadLocalPath)

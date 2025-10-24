@@ -38,11 +38,6 @@ namespace IcosaClientEditor
         private const string WINDOW_TITLE = "Icosa Client";
 
         /// <summary>
-        /// URL of the user's profile page.
-        /// </summary>
-        private const string USER_PROFILE_URL = "https://icosa.gallery/user";
-
-        /// <summary>
         /// Width and height of each asset thumbnail image in the grid.
         /// </summary>
         private const int THUMBNAIL_WIDTH = 128;
@@ -265,6 +260,11 @@ namespace IcosaClientEditor
         /// The style we use for the asset title in the details page.
         /// </summary>
         private GUIStyle detailsTitleStyle;
+
+        /// <summary>
+        /// Cached style for bold link labels.
+        /// </summary>
+        private static GUIStyle boldLinkLabelStyle;
 
         /// <summary>
         /// GUI helper that keeps track of our open layouts.
@@ -754,6 +754,8 @@ namespace IcosaClientEditor
             guiHelper.BeginVertical();
             guiHelper.BeginHorizontal();
 
+            string authBaseUrl = GetAuthBaseUrl();
+
             IcosaAsset clickedAsset = null;
             foreach (IcosaAsset asset in result.assets)
             {
@@ -774,9 +776,37 @@ namespace IcosaClientEditor
                     clickedAsset = asset;
                 }
 
-                GUILayout.Label(asset.displayName, EditorStyles.boldLabel, GUILayout.Width(CELL_WIDTH));
-                GUILayout.Label(asset.license.ToString(), detailsTitleStyle);
-                GUILayout.Label(asset.authorName, GUILayout.Width(CELL_WIDTH));
+                if (!string.IsNullOrEmpty(asset.Url))
+                {
+                    DrawLinkLabel(asset.displayName, asset.Url, GetBoldLinkLabelStyle(), GUILayout.Width(CELL_WIDTH));
+                }
+                else
+                {
+                    GUILayout.Label(asset.displayName, EditorStyles.boldLabel, GUILayout.Width(CELL_WIDTH));
+                }
+
+                if (!string.IsNullOrEmpty(asset.AuthorUrl))
+                {
+                    DrawLinkLabel(asset.authorName, asset.AuthorUrl, EditorStyles.linkLabel, GUILayout.Width(CELL_WIDTH));
+                }
+                else
+                {
+                    GUILayout.Label(asset.authorName, GUILayout.Width(CELL_WIDTH));
+                }
+
+                // License name and link.
+                string licenseName = asset.FriendlyShortLicenseName;
+                string licenseUrl = asset.LicenseUrl;
+                bool hasLicenseLink = !string.IsNullOrEmpty(licenseUrl) &&
+                                      !string.Equals(licenseUrl, "Unknown", StringComparison.OrdinalIgnoreCase);
+                if (hasLicenseLink)
+                {
+                    DrawLinkLabel(licenseName, licenseUrl, EditorStyles.linkLabel);
+                }
+                else
+                {
+                    GUILayout.Label(licenseName);
+                }
                 guiHelper.EndVertical();
                 assetsThisRow++;
             }
@@ -855,7 +885,7 @@ namespace IcosaClientEditor
             GenericMenu menu = new GenericMenu();
             menu.AddItem(new GUIContent("My Profile (web)"), /* on */ false, () =>
             {
-                Application.OpenURL(USER_PROFILE_URL);
+                Application.OpenURL(IcosaAsset.USER_PROFILE_BASE_URL);
             });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("Sign Out"), /* on */ false, () =>
@@ -1016,7 +1046,7 @@ namespace IcosaClientEditor
 
             guiHelper.BeginHorizontal();
             GUILayout.Label(selectedAsset.displayName, detailsTitleStyle);
-            GUILayout.Label(selectedAsset.license.ToString(), detailsTitleStyle);
+            GUILayout.Label(selectedAsset.AttributionInfo, detailsTitleStyle);
             guiHelper.EndHorizontal();
 
             guiHelper.BeginHorizontal();
@@ -1236,6 +1266,63 @@ namespace IcosaClientEditor
 
             formatTypes.Sort();
             return string.Join(",", formatTypes.ToArray());
+        }
+
+        private static string GetAuthBaseUrl()
+        {
+            if (Application.isPlaying)
+            {
+                return string.Empty;
+            }
+
+            PtSettings settings = PtSettings.Instance;
+            if (settings != null && !string.IsNullOrEmpty(settings.authConfig.baseUrl))
+            {
+                return settings.authConfig.baseUrl;
+            }
+
+            return string.Empty;
+        }
+
+        private static string CombineBaseUrlAndId(string baseUrl, string id)
+        {
+            if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(id))
+            {
+                return string.Empty;
+            }
+
+            if (!baseUrl.EndsWith("/"))
+            {
+                baseUrl += "/";
+            }
+
+            return baseUrl + id;
+        }
+
+        private static GUIStyle GetBoldLinkLabelStyle()
+        {
+            if (boldLinkLabelStyle == null)
+            {
+                boldLinkLabelStyle = new GUIStyle(EditorStyles.linkLabel)
+                {
+                    fontStyle = FontStyle.Bold
+                };
+            }
+
+            return boldLinkLabelStyle;
+        }
+
+        private static void DrawLinkLabel(string text, string url, GUIStyle style, params GUILayoutOption[] options)
+        {
+            GUILayout.Label(text, style, options);
+            Rect linkRect = GUILayoutUtility.GetLastRect();
+            EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseUp && Event.current.button == 0 &&
+                linkRect.Contains(Event.current.mousePosition))
+            {
+                Application.OpenURL(url);
+                Event.current.Use();
+            }
         }
 
         private void OnDestroy()

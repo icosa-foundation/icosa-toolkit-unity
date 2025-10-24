@@ -15,11 +15,12 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.Build;
+using UnityEditor.Build.Reporting;
 using IcosaApiClient;
 
 namespace IcosaClientEditor
 {
-    class WarnIfManagerNotInScene : IProcessScene, IPostprocessBuild
+    class WarnIfManagerNotInScene : IProcessSceneWithReport, IPostprocessBuildWithReport
     {
         bool sawManager;
 
@@ -28,7 +29,7 @@ namespace IcosaClientEditor
             get { return 0; }
         }
 
-        public void OnProcessScene(UnityEngine.SceneManagement.Scene scene)
+        public void OnProcessScene(UnityEngine.SceneManagement.Scene scene, BuildReport report)
         {
             if (!sawManager)
             {
@@ -46,7 +47,7 @@ namespace IcosaClientEditor
             }
         }
 
-        public void OnPostprocessBuild(BuildTarget target, string path)
+        public void OnPostprocessBuild(BuildReport report)
         {
             if (!sawManager)
             {
