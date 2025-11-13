@@ -219,6 +219,17 @@ namespace IcosaApiClient
         }
 
         /// <summary>
+        /// Requests a listing of the logged-in user's own collections according to the specified parameters.
+        /// </summary>
+        /// <param name="request">The request parameters.</param>
+        /// <param name="callback">The callback to call when the request finishes.</param>
+        public static void ListUserCollections(IcosaListUserCollectionsRequest request, ListCollectionsCallback callback)
+        {
+            CheckInitialized();
+            IcosaMainInternal.Instance.ListUserCollections(request, callback);
+        }
+
+        /// <summary>
         /// Delegate type for the callback of <see cref="GetCollection"/>.
         /// </summary>
         /// <param name="result"></param>

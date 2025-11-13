@@ -18,18 +18,38 @@ using IcosaApiClient;
 /// <summary>
 /// Example that shows how to list and retrieve collections from Icosa Gallery.
 ///
-/// This example requests the list of public collections and displays information about them.
+/// This example demonstrates:
+/// 1. Listing public collections
+/// 2. Listing the authenticated user's own collections
+/// 3. Fetching a specific collection by URL
+/// 4. Fetching collection thumbnails
 /// </summary>
 public class ShowCollectionsExample : MonoBehaviour
 {
     private void Start()
     {
-        // Request a list of collections from Icosa Gallery.
-        Debug.Log("Getting collections...");
+        // Example 1: Request a list of public collections from Icosa Gallery.
+        Debug.Log("=== Getting public collections ===");
 
         IcosaListCollectionsRequest request = IcosaListCollectionsRequest.Newest();
         request.pageSize = 10;
         IcosaApi.ListCollections(request, ListCollectionsCallback);
+
+        // Example 2: Request the authenticated user's own collections.
+        // Note: This requires authentication. Make sure you have authenticated before calling this.
+        if (IcosaApi.IsAuthenticated)
+        {
+            Debug.Log("=== Getting user's own collections ===");
+            IcosaListUserCollectionsRequest userRequest = IcosaListUserCollectionsRequest.MyNewest();
+            userRequest.pageSize = 10;
+            // You can filter by visibility: PRIVATE, PUBLISHED, or UNSPECIFIED (all)
+            userRequest.visibility = IcosaVisibilityFilter.UNSPECIFIED;
+            IcosaApi.ListUserCollections(userRequest, ListUserCollectionsCallback);
+        }
+        else
+        {
+            Debug.Log("User is not authenticated. Skipping user collections example.");
+        }
     }
 
     // Callback invoked when the collections results are returned.
@@ -79,6 +99,29 @@ public class ShowCollectionsExample : MonoBehaviour
             string firstCollectionUrl = result.Value.collections[0].url;
             Debug.Log(string.Format("Fetching specific collection by URL: {0}", firstCollectionUrl));
             IcosaApi.GetCollection(firstCollectionUrl, GetCollectionCallback);
+        }
+    }
+
+    // Callback invoked when the user's collections results are returned.
+    private void ListUserCollectionsCallback(IcosaStatusOr<IcosaListCollectionsResult> result)
+    {
+        if (!result.Ok)
+        {
+            Debug.LogError("Failed to get user collections. Reason: " + result.Status);
+            return;
+        }
+
+        Debug.Log("Successfully got user's collections!");
+        Debug.Log(string.Format("Found {0} user collections (total: {1})",
+            result.Value.collections.Count, result.Value.totalSize));
+
+        // Display information about each user collection
+        foreach (IcosaCollection collection in result.Value.collections)
+        {
+            Debug.Log(string.Format("User Collection: {0}", collection.name));
+            Debug.Log(string.Format("  URL: {0}", collection.Url));
+            Debug.Log(string.Format("  Visibility: {0}", collection.visibility));
+            Debug.Log(string.Format("  Assets: {0}", collection.assets.Count));
         }
     }
 

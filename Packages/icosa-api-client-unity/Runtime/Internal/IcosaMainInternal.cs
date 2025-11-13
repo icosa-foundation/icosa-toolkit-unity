@@ -261,6 +261,26 @@ namespace IcosaClientInternal
         }
 
         /// <summary>
+        /// As documented in IcosaClient.ListUserCollections.
+        /// </summary>
+        public void ListUserCollections(IcosaListUserCollectionsRequest listUserCollectionsRequest, IcosaApi.ListCollectionsCallback callback)
+        {
+            // Users expect their own collections to update quickly once they make a change.
+            // So we don't use caching for these.
+            IcosaClient.SendRequest(listUserCollectionsRequest, (IcosaStatus status, IcosaListCollectionsResult icosaListResult) =>
+            {
+                if (status.ok)
+                {
+                    ProcessRequestResult(icosaListResult, callback);
+                }
+                else
+                {
+                    callback(new IcosaStatusOr<IcosaListCollectionsResult>(IcosaStatus.Error(status, "Request failed")));
+                }
+            }, /*maxCacheAge*/ WebRequestManager.CACHE_NONE);
+        }
+
+        /// <summary>
         /// Fetch a specific Icosa collection.
         /// </summary>
         /// <param name="collectionUrl">The URL identifier of the sought collection.</param>

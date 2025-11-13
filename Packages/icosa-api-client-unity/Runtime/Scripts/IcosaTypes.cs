@@ -804,6 +804,34 @@ namespace IcosaApiClient
     }
 
     /// <summary>
+    /// Represents a set of Icosa request parameters determining which of the user's collections should be returned.
+    /// </summary>
+    [AutoStringifiable]
+    public class IcosaListUserCollectionsRequest : IcosaRequest
+    {
+        public IcosaVisibilityFilter visibility = IcosaVisibilityFilter.UNSPECIFIED;
+
+        public IcosaListUserCollectionsRequest()
+        {
+        }
+
+        /// <summary>
+        /// Returns a ListUserCollectionsRequest that requests the user's newest collections.
+        /// </summary>
+        public static IcosaListUserCollectionsRequest MyNewest()
+        {
+            IcosaListUserCollectionsRequest myNewest = new IcosaListUserCollectionsRequest();
+            myNewest.orderBy = IcosaOrderBy.NEWEST;
+            return myNewest;
+        }
+
+        public override string ToString()
+        {
+            return AutoStringify.Stringify(this);
+        }
+    }
+
+    /// <summary>
     /// Represents the status of an operation: success or failure + error message.
     ///
     /// A typical pattern is to return a IcosaStatus to indicate the success of an operation, instead of just a bool.

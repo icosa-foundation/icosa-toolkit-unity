@@ -350,6 +350,31 @@ namespace IcosaClientInternal.api_clients.icosa_client
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Return a Icosa search URL representing a ListUserCollectionsRequest.
+        /// </summary>
+        private static string MakeSearchUrl(IcosaListUserCollectionsRequest listUserCollectionsRequest)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(GetBaseUrl())
+                .Append("/v1/users/me/collections")
+                .AppendFormat("?key={0}", IcosaMainInternal.Instance.apiKey);
+
+            if (listUserCollectionsRequest.visibility != IcosaVisibilityFilter.UNSPECIFIED)
+            {
+                sb.AppendFormat("&visibility={0}", UnityWebRequest.EscapeURL(VISIBILITY[listUserCollectionsRequest.visibility]));
+            }
+
+            sb.AppendFormat("&order_by={0}", UnityWebRequest.EscapeURL(ORDER_BY[listUserCollectionsRequest.orderBy]));
+            sb.AppendFormat("&page_size={0}", listUserCollectionsRequest.pageSize);
+            if (listUserCollectionsRequest.pageToken != null)
+            {
+                sb.AppendFormat("&page_token={0}", UnityWebRequest.EscapeURL(listUserCollectionsRequest.pageToken));
+            }
+
+            return sb.ToString();
+        }
+
         private static string MakeSearchUrl(IcosaRequest request)
         {
             if (request is IcosaListAssetsRequest)
@@ -367,6 +392,10 @@ namespace IcosaClientInternal.api_clients.icosa_client
             else if (request is IcosaListCollectionsRequest)
             {
                 return MakeSearchUrl(request as IcosaListCollectionsRequest);
+            }
+            else if (request is IcosaListUserCollectionsRequest)
+            {
+                return MakeSearchUrl(request as IcosaListUserCollectionsRequest);
             }
             else
             {
@@ -796,6 +825,52 @@ namespace IcosaClientInternal.api_clients.icosa_client
         /// <param name="isRecursion"> If true, this is a recursive call to this function, and no
         /// further retries should be attempted.</param>
         public void SendRequest(IcosaListCollectionsRequest request, Action<IcosaStatus, IcosaListCollectionsResult> callback,
+            long maxCacheAge = DEFAULT_QUERY_CACHE_MAX_AGE_MILLIS, bool isRecursion = false)
+        {
+            IcosaMainInternal.Instance.webRequestManager.EnqueueRequest(
+                () => { return GetRequest(MakeSearchUrl(request)); },
+                (IcosaStatus status, int responseCode, byte[] response) =>
+                {
+                    // Retry the request if this was the first failure.
+                    if (responseCode == 401 || !status.ok)
+                    {
+                        if (isRecursion || !Authenticator.IsInitialized || !Authenticator.Instance.IsAuthenticated)
+                        {
+                            callback(IcosaStatus.Error(status, "Query error ({0})", responseCode), null);
+                            return;
+                        }
+                        else
+                        {
+                            Authenticator.Instance.Reauthorize((IcosaStatus reauthStatus) =>
+                            {
+                                if (reauthStatus.ok)
+                                {
+                                    SendRequest(request, callback, maxCacheAge: maxCacheAge, isRecursion: true);
+                                }
+                                else
+                                {
+                                    callback(IcosaStatus.Error(reauthStatus, "Failed to reauthorize."), null);
+                                }
+                            });
+                        }
+                    }
+                    else
+                    {
+                        IcosaMainInternal.Instance.DoBackgroundWork(new ParseCollectionsBackgroundWork(
+                            response, callback));
+                    }
+                }, maxCacheAge);
+        }
+
+        /// <summary>
+        /// Fetches a list of the user's own Icosa collections together with metadata, using the given request params.
+        /// </summary>
+        /// <param name="request">The request to send (IcosaListUserCollectionsRequest).</param>
+        /// <param name="callback">The callback to call when the request is complete.</param>
+        /// <param name="maxCacheAge">The maximum cache age to use.</param>
+        /// <param name="isRecursion"> If true, this is a recursive call to this function, and no
+        /// further retries should be attempted.</param>
+        public void SendRequest(IcosaListUserCollectionsRequest request, Action<IcosaStatus, IcosaListCollectionsResult> callback,
             long maxCacheAge = DEFAULT_QUERY_CACHE_MAX_AGE_MILLIS, bool isRecursion = false)
         {
             IcosaMainInternal.Instance.webRequestManager.EnqueueRequest(
