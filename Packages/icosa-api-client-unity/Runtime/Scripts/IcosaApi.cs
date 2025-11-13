@@ -202,6 +202,40 @@ namespace IcosaApiClient
         }
 
         /// <summary>
+        /// Delegate type for the callback of <see cref="ListCollections"/>.
+        /// </summary>
+        /// <param name="result"></param>
+        public delegate void ListCollectionsCallback(IcosaStatusOr<IcosaListCollectionsResult> result);
+
+        /// <summary>
+        /// Requests a listing of public collections according to the specified parameters.
+        /// </summary>
+        /// <param name="request">The request parameters.</param>
+        /// <param name="callback">The callback to call when the request finishes.</param>
+        public static void ListCollections(IcosaListCollectionsRequest request, ListCollectionsCallback callback)
+        {
+            CheckInitialized();
+            IcosaMainInternal.Instance.ListCollections(request, callback);
+        }
+
+        /// <summary>
+        /// Delegate type for the callback of <see cref="GetCollection"/>.
+        /// </summary>
+        /// <param name="result"></param>
+        public delegate void GetCollectionCallback(IcosaStatusOr<IcosaCollection> result);
+
+        /// <summary>
+        /// Gets a collection by its URL identifier.
+        /// </summary>
+        /// <param name="collectionUrl">The URL identifier of the collection to get.</param>
+        /// <param name="callback">The callback to call when the request finishes.</param>
+        public static void GetCollection(string collectionUrl, GetCollectionCallback callback)
+        {
+            CheckInitialized();
+            IcosaMainInternal.Instance.GetCollection(collectionUrl, callback);
+        }
+
+        /// <summary>
         /// Delegate type for the callback of <see cref="GetAsset"/>.
         /// </summary>
         /// <param name="result"></param>
@@ -296,6 +330,41 @@ namespace IcosaApiClient
         {
             CheckInitialized();
             IcosaMainInternal.Instance.FetchThumbnail(asset, options, callback);
+        }
+
+        /// <summary>
+        /// Delegate type for the callback of <see cref="FetchCollectionThumbnail"/>.
+        /// </summary>
+        /// <remarks>
+        /// If this callback reports success, then the thumbnail will be available in the collection's
+        /// <see cref="IcosaCollection.thumbnailTexture"/> field.
+        /// </remarks>
+        /// <param name="collection">The collection whose thumbnail we were fetching.</param>
+        /// <param name="status">The result of the fetch.</param>
+        public delegate void FetchCollectionThumbnailCallback(IcosaCollection collection, IcosaStatus status);
+
+        /// <summary>
+        /// Fetches the thumbnail for the given collection.
+        /// </summary>
+        /// <param name="collection">The collection for which to fetch the thumbnail.</param>
+        /// <param name="callback">The callback to call when the fetch finishes (optional).</param>
+        public static void FetchCollectionThumbnail(IcosaCollection collection, FetchCollectionThumbnailCallback callback = null)
+        {
+            CheckInitialized();
+            IcosaMainInternal.Instance.FetchCollectionThumbnail(collection, null, callback);
+        }
+
+        /// <summary>
+        /// Fetches the thumbnail for the given collection.
+        /// </summary>
+        /// <param name="collection">The collection for which to fetch the thumbnail.</param>
+        /// <param name="options">The extra options, if any (can be null).</param>
+        /// <param name="callback">The callback to call when the fetch finishes (optional).</param>
+        public static void FetchCollectionThumbnail(IcosaCollection collection, IcosaFetchThumbnailOptions options,
+            FetchCollectionThumbnailCallback callback = null)
+        {
+            CheckInitialized();
+            IcosaMainInternal.Instance.FetchCollectionThumbnail(collection, options, callback);
         }
 
         /// <summary>

@@ -243,6 +243,54 @@ namespace IcosaClientInternal
         }
 
         /// <summary>
+        /// As documented in IcosaClient.ListCollections.
+        /// </summary>
+        public void ListCollections(IcosaListCollectionsRequest listCollectionsRequest, IcosaApi.ListCollectionsCallback callback)
+        {
+            IcosaClient.SendRequest(listCollectionsRequest, (IcosaStatus status, IcosaListCollectionsResult icosaListResult) =>
+            {
+                if (status.ok)
+                {
+                    ProcessRequestResult(icosaListResult, callback);
+                }
+                else
+                {
+                    callback(new IcosaStatusOr<IcosaListCollectionsResult>(IcosaStatus.Error(status, "Request failed")));
+                }
+            });
+        }
+
+        /// <summary>
+        /// Fetch a specific Icosa collection.
+        /// </summary>
+        /// <param name="collectionUrl">The URL identifier of the sought collection.</param>
+        /// <param name="callback">The callback.</param>
+        public void GetCollection(string collectionUrl, IcosaApi.GetCollectionCallback callback)
+        {
+            IcosaClient.GetCollection(collectionUrl, (IcosaStatus status, IcosaCollection result) =>
+            {
+                if (status.ok)
+                {
+                    callback(new IcosaStatusOr<IcosaCollection>(result));
+                }
+                else
+                {
+                    callback(new IcosaStatusOr<IcosaCollection>(IcosaStatus.Error(status, "Failed to get collection {0}", collectionUrl)));
+                }
+            });
+        }
+
+        /// <summary>
+        /// Fetches the thumbnail for a collection.
+        /// </summary>
+        public void FetchCollectionThumbnail(IcosaCollection collection, IcosaFetchThumbnailOptions options,
+            IcosaApi.FetchCollectionThumbnailCallback callback)
+        {
+            CollectionThumbnailFetcher fetcher = new CollectionThumbnailFetcher(collection, options, callback);
+            fetcher.Fetch();
+        }
+
+        /// <summary>
         /// Fetch a specific Icosa asset.
         /// </summary>
         /// <param name="id">The ID of the sought asset.</param>
@@ -465,6 +513,24 @@ namespace IcosaClientInternal
             }
 
             callback(new IcosaStatusOr<IcosaListAssetsResult>(result));
+        }
+
+        private void ProcessRequestResult(IcosaListCollectionsResult result, IcosaApi.ListCollectionsCallback callback)
+        {
+            if (result == null)
+            {
+                callback(new IcosaStatusOr<IcosaListCollectionsResult>(IcosaStatus.Error("No request result.")));
+                return;
+            }
+
+            if (result.collections == null)
+            {
+                // Nothing wrong with the request, there were just no collections that matched those parameters.
+                // Put an empty list in the result.
+                result.collections = new List<IcosaCollection>();
+            }
+
+            callback(new IcosaStatusOr<IcosaListCollectionsResult>(result));
         }
 
         /// <summary>

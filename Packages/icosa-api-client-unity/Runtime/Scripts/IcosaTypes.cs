@@ -576,6 +576,67 @@ namespace IcosaApiClient
     }
 
     /// <summary>
+    /// Represents a collection of assets on Icosa Gallery.
+    /// </summary>
+    [AutoStringifiable]
+    public class IcosaCollection
+    {
+        public static string COLLECTION_BASE_URL => $"{IcosaAsset.WEBSITE_BASE_URL}/collection";
+
+        public string Url => $"{COLLECTION_BASE_URL}/{url}";
+
+        /// <summary>
+        /// Unique URL identifier for the collection.
+        /// </summary>
+        public string url;
+
+        /// <summary>
+        /// Human-readable name of the collection.
+        /// </summary>
+        public string name;
+
+        /// <summary>
+        /// Description of the collection.
+        /// </summary>
+        public string description;
+
+        /// <summary>
+        /// Date and time when the collection was created.
+        /// </summary>
+        public DateTime createTime;
+
+        /// <summary>
+        /// Date and time when the collection was last updated.
+        /// </summary>
+        public DateTime? updateTime;
+
+        /// <summary>
+        /// Visibility of this collection (who can access it).
+        /// </summary>
+        public IcosaVisibility visibility;
+
+        /// <summary>
+        /// URL to the collection's thumbnail image.
+        /// </summary>
+        public string imageUrl;
+
+        /// <summary>
+        /// List of assets in this collection (only public assets are included).
+        /// </summary>
+        public List<IcosaAsset> assets = new List<IcosaAsset>();
+
+        /// <summary>
+        /// The texture with the collection's thumbnail image. Only available after successfully fetched.
+        /// </summary>
+        public Texture2D thumbnailTexture;
+
+        public override string ToString()
+        {
+            return AutoStringify.Stringify(this);
+        }
+    }
+
+    /// <summary>
     /// Base class that all request types derive from.
     /// </summary>
     public abstract class IcosaRequest
@@ -706,6 +767,34 @@ namespace IcosaApiClient
             IcosaListLikedAssetsRequest myLiked = new IcosaListLikedAssetsRequest();
             myLiked.orderBy = IcosaOrderBy.LIKED_TIME;
             return myLiked;
+        }
+
+        public override string ToString()
+        {
+            return AutoStringify.Stringify(this);
+        }
+    }
+
+    /// <summary>
+    /// Represents a set of Icosa request parameters determining which collections should be returned.
+    /// </summary>
+    [AutoStringifiable]
+    public class IcosaListCollectionsRequest : IcosaRequest
+    {
+        public string keywords = "";
+
+        public IcosaListCollectionsRequest()
+        {
+        }
+
+        /// <summary>
+        /// Returns a ListCollectionsRequest that requests the newest collections.
+        /// </summary>
+        public static IcosaListCollectionsRequest Newest()
+        {
+            IcosaListCollectionsRequest newest = new IcosaListCollectionsRequest();
+            newest.orderBy = IcosaOrderBy.NEWEST;
+            return newest;
         }
 
         public override string ToString()
@@ -934,6 +1023,43 @@ namespace IcosaApiClient
         {
             this.status = status;
             this.assets = assets;
+            this.totalSize = totalSize;
+            this.nextPageToken = nextPageToken;
+        }
+
+        public override string ToString()
+        {
+            return AutoStringify.Stringify(this);
+        }
+    }
+
+    /// <summary>
+    /// Represents the result of a IcosaListCollectionsRequest.
+    /// </summary>
+    [AutoStringifiable]
+    public class IcosaListCollectionsResult : IcosaBaseResult
+    {
+        /// <summary>
+        /// A list of collections that match the criteria specified in the request.
+        /// </summary>
+        public List<IcosaCollection> collections;
+
+        /// <summary>
+        /// The total number of collections in the list, without pagination.
+        /// </summary>
+        public int totalSize;
+
+        /// <summary>
+        /// The token to retrieve the next page of results, if any.
+        /// If there is no next page, this will be null.
+        /// </summary>
+        public string nextPageToken;
+
+        public IcosaListCollectionsResult(IcosaStatus status, int totalSize = 0, List<IcosaCollection> collections = null,
+            string nextPageToken = null)
+        {
+            this.status = status;
+            this.collections = collections;
             this.totalSize = totalSize;
             this.nextPageToken = nextPageToken;
         }

@@ -88,6 +88,70 @@ namespace IcosaClientInternal.api_clients.icosa_client
         }
     }
 
+    /// <summary>
+    ///   Parses the response of a List Collections request from Icosa into a IcosaListCollectionsResult.
+    /// </summary>
+    public class ParseCollectionsBackgroundWork : BackgroundWork
+    {
+        private byte[] response;
+        private IcosaStatus status;
+        private Action<IcosaStatus, IcosaListCollectionsResult> callback;
+        private IcosaListCollectionsResult icosaListCollectionsResult;
+
+        public ParseCollectionsBackgroundWork(byte[] response, Action<IcosaStatus, IcosaListCollectionsResult> callback)
+        {
+            this.response = response;
+            this.callback = callback;
+        }
+
+        public void BackgroundWork()
+        {
+            JObject result;
+            status = IcosaClient.ParseResponse(response, out result);
+            if (status.ok)
+            {
+                status = IcosaClient.ParseReturnedCollections(Encoding.UTF8.GetString(response), out icosaListCollectionsResult);
+            }
+        }
+
+        public void PostWork()
+        {
+            callback(status, icosaListCollectionsResult);
+        }
+    }
+
+    /// <summary>
+    ///   Parses a collection from Icosa into a IcosaCollection.
+    /// </summary>
+    public class ParseCollectionBackgroundWork : BackgroundWork
+    {
+        private byte[] response;
+        private Action<IcosaStatus, IcosaCollection> callback;
+        private IcosaStatus status;
+        private IcosaCollection icosaCollection;
+
+        public ParseCollectionBackgroundWork(byte[] response, Action<IcosaStatus, IcosaCollection> callback)
+        {
+            this.response = response;
+            this.callback = callback;
+        }
+
+        public void BackgroundWork()
+        {
+            JObject result;
+            status = IcosaClient.ParseResponse(response, out result);
+            if (status.ok)
+            {
+                status = IcosaClient.ParseCollection(result, out icosaCollection);
+            }
+        }
+
+        public void PostWork()
+        {
+            callback(status, icosaCollection);
+        }
+    }
+
     [ExecuteInEditMode]
     public class IcosaClient : MonoBehaviour
     {
@@ -261,6 +325,31 @@ namespace IcosaClientInternal.api_clients.icosa_client
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Return a Icosa search URL representing a ListCollectionsRequest.
+        /// </summary>
+        private static string MakeSearchUrl(IcosaListCollectionsRequest listCollectionsRequest)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(GetBaseUrl())
+                .Append("/v1/collections");
+
+            sb.AppendFormat("?order_by={0}", UnityWebRequest.EscapeURL(ORDER_BY[listCollectionsRequest.orderBy]));
+            sb.AppendFormat("&page_size={0}", listCollectionsRequest.pageSize.ToString());
+
+            if (listCollectionsRequest.keywords != null && listCollectionsRequest.keywords.Length > 0)
+            {
+                sb.AppendFormat("&keywords={0}", UnityWebRequest.EscapeURL(listCollectionsRequest.keywords));
+            }
+
+            if (listCollectionsRequest.pageToken != null)
+            {
+                sb.AppendFormat("&page_token={0}", UnityWebRequest.EscapeURL(listCollectionsRequest.pageToken));
+            }
+
+            return sb.ToString();
+        }
+
         private static string MakeSearchUrl(IcosaRequest request)
         {
             if (request is IcosaListAssetsRequest)
@@ -274,6 +363,10 @@ namespace IcosaClientInternal.api_clients.icosa_client
             else if (request is IcosaListLikedAssetsRequest)
             {
                 return MakeSearchUrl(request as IcosaListLikedAssetsRequest);
+            }
+            else if (request is IcosaListCollectionsRequest)
+            {
+                return MakeSearchUrl(request as IcosaListCollectionsRequest);
             }
             else
             {
@@ -436,6 +529,114 @@ namespace IcosaClientInternal.api_clients.icosa_client
             return ParseAsset(JObject.Parse(response), out objectStoreEntry);
         }
 
+        /// <summary>
+        ///   Takes a string, representing a ListCollectionsResponse, and fills icosaListCollectionsResult
+        ///   with relevant fields from the response and returns a success status if the response is of the
+        ///   expected format, or a failure status if it's not.
+        /// </summary>
+        public static IcosaStatus ParseReturnedCollections(string response, out IcosaListCollectionsResult icosaListCollectionsResult)
+        {
+            // Try and actually parse the string.
+            JObject results = JObject.Parse(response);
+            IJEnumerable<JToken> collections = results["results"].AsJEnumerable();
+
+            if (collections == null)
+            {
+                // Empty response means there were no collections that matched the request parameters.
+                icosaListCollectionsResult = new IcosaListCollectionsResult(IcosaStatus.Success(), /*totalSize*/ 0);
+                return IcosaStatus.Success();
+            }
+
+            List<IcosaCollection> icosaCollections = new List<IcosaCollection>();
+            foreach (JToken collection in collections)
+            {
+                IcosaCollection icosaCollection;
+                if (!(collection is JObject))
+                {
+                    Debug.LogWarningFormat("Ignoring collection since it's not a JSON object: " + collection);
+                    continue;
+                }
+
+                JObject jObjectCollection = (JObject)collection;
+                IcosaStatus parseStatus = ParseCollection(jObjectCollection, out icosaCollection);
+                if (parseStatus.ok)
+                {
+                    icosaCollections.Add(icosaCollection);
+                }
+                else
+                {
+                    Debug.LogWarningFormat("Failed to parse a returned collection: {0}", parseStatus);
+                }
+            }
+
+            var totalSize = results["count"] != null ? int.Parse(results["count"].ToString()) : 0;
+            var nextPageToken = results["next"] != null ? results["next"].ToString() : null;
+            icosaListCollectionsResult =
+                new IcosaListCollectionsResult(IcosaStatus.Success(), totalSize, icosaCollections, nextPageToken);
+            return IcosaStatus.Success();
+        }
+
+        /// <summary>
+        /// Parses a single collection.
+        /// </summary>
+        public static IcosaStatus ParseCollection(JObject collection, out IcosaCollection icosaCollection)
+        {
+            icosaCollection = new IcosaCollection();
+
+            if (collection["visibility"] == null)
+            {
+                return IcosaStatus.Error("Collection has no visibility set.");
+            }
+
+            icosaCollection.url = collection["url"].ToString();
+            icosaCollection.name = collection["name"].ToString();
+
+            if (collection["description"] != null)
+            {
+                icosaCollection.description = collection["description"].ToString();
+            }
+
+            icosaCollection.createTime = DateTime.Parse(collection["createTime"].ToString());
+
+            if (collection["updateTime"] != null)
+            {
+                icosaCollection.updateTime = DateTime.Parse(collection["updateTime"].ToString());
+            }
+
+            icosaCollection.visibility = ParseIcosaVisibility(collection["visibility"]);
+
+            if (collection["imageUrl"] != null)
+            {
+                icosaCollection.imageUrl = collection["imageUrl"].ToString();
+            }
+
+            // Parse assets if present
+            if (collection["assets"] != null)
+            {
+                foreach (JToken asset in collection["assets"])
+                {
+                    IcosaAsset icosaAsset;
+                    if (!(asset is JObject))
+                    {
+                        Debug.LogWarningFormat("Ignoring asset in collection since it's not a JSON object: " + asset);
+                        continue;
+                    }
+
+                    IcosaStatus parseStatus = ParseAsset((JObject)asset, out icosaAsset);
+                    if (parseStatus.ok)
+                    {
+                        icosaCollection.assets.Add(icosaAsset);
+                    }
+                    else
+                    {
+                        Debug.LogWarningFormat("Failed to parse asset in collection: {0}", parseStatus);
+                    }
+                }
+            }
+
+            return IcosaStatus.Success();
+        }
+
         private static IcosaFormat ParseAssetsPackage(JToken token)
         {
             IcosaFormat package = new IcosaFormat();
@@ -581,6 +782,102 @@ namespace IcosaClientInternal.api_clients.icosa_client
                     else
                     {
                         IcosaMainInternal.Instance.DoBackgroundWork(new ParseAssetBackgroundWork(response,
+                            callback));
+                    }
+                }, DEFAULT_QUERY_CACHE_MAX_AGE_MILLIS);
+        }
+
+        /// <summary>
+        /// Fetches a list of Icosa collections together with metadata, using the given request params.
+        /// </summary>
+        /// <param name="request">The request to send (IcosaListCollectionsRequest).</param>
+        /// <param name="callback">The callback to call when the request is complete.</param>
+        /// <param name="maxCacheAge">The maximum cache age to use.</param>
+        /// <param name="isRecursion"> If true, this is a recursive call to this function, and no
+        /// further retries should be attempted.</param>
+        public void SendRequest(IcosaListCollectionsRequest request, Action<IcosaStatus, IcosaListCollectionsResult> callback,
+            long maxCacheAge = DEFAULT_QUERY_CACHE_MAX_AGE_MILLIS, bool isRecursion = false)
+        {
+            IcosaMainInternal.Instance.webRequestManager.EnqueueRequest(
+                () => { return GetRequest(MakeSearchUrl(request)); },
+                (IcosaStatus status, int responseCode, byte[] response) =>
+                {
+                    // Retry the request if this was the first failure.
+                    if (responseCode == 401 || !status.ok)
+                    {
+                        if (isRecursion || !Authenticator.IsInitialized || !Authenticator.Instance.IsAuthenticated)
+                        {
+                            callback(IcosaStatus.Error(status, "Query error ({0})", responseCode), null);
+                            return;
+                        }
+                        else
+                        {
+                            Authenticator.Instance.Reauthorize((IcosaStatus reauthStatus) =>
+                            {
+                                if (reauthStatus.ok)
+                                {
+                                    SendRequest(request, callback, maxCacheAge: maxCacheAge, isRecursion: true);
+                                }
+                                else
+                                {
+                                    callback(IcosaStatus.Error(reauthStatus, "Failed to reauthorize."), null);
+                                }
+                            });
+                        }
+                    }
+                    else
+                    {
+                        IcosaMainInternal.Instance.DoBackgroundWork(new ParseCollectionsBackgroundWork(
+                            response, callback));
+                    }
+                }, maxCacheAge);
+        }
+
+        /// <summary>
+        ///   Fetch a specific collection by URL.
+        /// </summary>
+        /// <param name="collectionUrl">The collection URL identifier to be fetched.</param>
+        /// <param name="callback">A callback to call with the result of the operation.</param>
+        /// <param name="isRecursion">
+        ///   If true, this is a recursive call to this function, and no further retries should be attempted.
+        /// </param>
+        public void GetCollection(string collectionUrl, Action<IcosaStatus, IcosaCollection> callback, bool isRecursion = false)
+        {
+            IcosaMainInternal.Instance.webRequestManager.EnqueueRequest(
+                () =>
+                {
+                    string url = String.Format("{0}/v1/collections/{1}", GetBaseUrl(), collectionUrl);
+                    return GetRequest(url);
+                },
+                (IcosaStatus status, int responseCode, byte[] response) =>
+                {
+                    if (responseCode < 200 || responseCode > 299 || !status.ok)
+                    {
+                        if (isRecursion || !Authenticator.IsInitialized)
+                        {
+                            callback(IcosaStatus.Error("Get collection error ({0})", responseCode), null);
+                            return;
+                        }
+                        else
+                        {
+                            Authenticator.Instance.Reauthorize((IcosaStatus reauthStatus) =>
+                            {
+                                if (reauthStatus.ok)
+                                {
+                                    GetCollection(collectionUrl, callback, isRecursion: true);
+                                }
+                                else
+                                {
+                                    callback(
+                                        IcosaStatus.Error(reauthStatus, "Failed to reauthenticate to get collection {0}",
+                                            collectionUrl), null);
+                                }
+                            });
+                        }
+                    }
+                    else
+                    {
+                        IcosaMainInternal.Instance.DoBackgroundWork(new ParseCollectionBackgroundWork(response,
                             callback));
                     }
                 }, DEFAULT_QUERY_CACHE_MAX_AGE_MILLIS);
