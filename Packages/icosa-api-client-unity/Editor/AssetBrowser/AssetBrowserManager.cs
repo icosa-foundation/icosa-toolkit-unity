@@ -52,6 +52,11 @@ namespace IcosaClientEditor
         private IcosaStatusOr<IcosaListAssetsResult> listAssetsResult = null;
 
         /// <summary>
+        /// The most recent collections query result that we have.
+        /// </summary>
+        private IcosaStatusOr<IcosaListCollectionsResult> listCollectionsResult = null;
+
+        /// <summary>
         /// List of assets that are currently being downloaded.
         /// </summary>
         private HashSet<IcosaAsset> assetsBeingDownloaded = new HashSet<IcosaAsset>();
@@ -69,6 +74,11 @@ namespace IcosaClientEditor
         private IcosaAsset assetResult = null;
 
         /// <summary>
+        /// Result of the most recent GetCollection request.
+        /// </summary>
+        private IcosaCollection collectionResult = null;
+
+        /// <summary>
         /// Whether the current response has at least another page of results left that haven't been loaded yet.
         /// </summary>
         public bool resultHasMorePages = false;
@@ -79,6 +89,22 @@ namespace IcosaClientEditor
         public IcosaAsset CurrentAssetResult
         {
             get { return assetResult; }
+        }
+
+        /// <summary>
+        /// Result of the most recent GetCollection request. (read only)
+        /// </summary>
+        public IcosaCollection CurrentCollectionResult
+        {
+            get { return collectionResult; }
+        }
+
+        /// <summary>
+        /// The result of the latest collections query, or null if there were no queries.
+        /// </summary>
+        public IcosaStatusOr<IcosaListCollectionsResult> CurrentCollectionsResult
+        {
+            get { return listCollectionsResult; }
         }
 
         /// <summary>
@@ -159,7 +185,7 @@ namespace IcosaClientEditor
 
             // If this is a request that needs authentication and we are in the process of authenticating,
             // wait until we're finished.
-            bool needAuth = request is IcosaListLikedAssetsRequest || request is IcosaListUserAssetsRequest;
+            bool needAuth = request is IcosaListLikedAssetsRequest || request is IcosaListUserAssetsRequest || request is IcosaListUserCollectionsRequest;
             if (needAuth && waitingForSilentAuth)
             {
                 // Defer the request. Wait until auth is complete.
@@ -168,7 +194,14 @@ namespace IcosaClientEditor
                 return;
             }
 
-            StartRequest(request);
+            if (request is IcosaListCollectionsRequest || request is IcosaListUserCollectionsRequest)
+            {
+                StartCollectionsRequest(request);
+            }
+            else
+            {
+                StartRequest(request);
+            }
         }
 
         /// <summary>
@@ -328,6 +361,77 @@ namespace IcosaClientEditor
         }
 
         /// <summary>
+        /// Starts a new collections request. If there is already an existing request in progress, it will be cancelled.
+        /// </summary>
+        /// <param name="request">The request parameters; can be either a IcosaListCollectionsRequest or
+        /// a IcosaListUserCollectionsRequest.</param>
+        public void StartCollectionsRequest(IcosaRequest request)
+        {
+            StartCollectionsRequest(request, OnCollectionsRequestResult);
+        }
+
+        /// <summary>
+        /// Starts a new collections request with a custom callback.
+        /// </summary>
+        private void StartCollectionsRequest(IcosaRequest request, Action<IcosaStatusOr<IcosaListCollectionsResult>> callback)
+        {
+            int thisQueryId = PrepareForNewQuery(); // for the closure below.
+            currentRequest = request;
+
+            if (request is IcosaListCollectionsRequest)
+            {
+                IcosaListCollectionsRequest listCollectionsRequest = request as IcosaListCollectionsRequest;
+                IcosaApi.ListCollections(listCollectionsRequest, (IcosaStatusOr<IcosaListCollectionsResult> result) =>
+                {
+                    if (thisQueryId == queryId && callback != null) callback(result);
+                });
+            }
+            else if (request is IcosaListUserCollectionsRequest)
+            {
+                IcosaListUserCollectionsRequest listUserCollectionsRequest = request as IcosaListUserCollectionsRequest;
+                IcosaApi.ListUserCollections(listUserCollectionsRequest, (IcosaStatusOr<IcosaListCollectionsResult> result) =>
+                {
+                    if (thisQueryId == queryId && callback != null) callback(result);
+                });
+            }
+            else
+            {
+                Debug.LogError("Request failed. Must be either a IcosaListCollectionsRequest or IcosaListUserCollectionsRequest");
+            }
+        }
+
+        /// <summary>
+        /// Get the next page of collections from the current request.
+        /// </summary>
+        public void GetNextPageCollectionsRequest()
+        {
+            PtDebug.Log("ABM: getting next page of current collections request...");
+
+            if (CurrentCollectionsResult == null || !CurrentCollectionsResult.Ok)
+            {
+                Debug.LogError("Request failed, no valid current result to get next page of.");
+            }
+
+            currentRequest.pageToken = CurrentCollectionsResult.Value.nextPageToken;
+            StartCollectionsRequest(currentRequest, OnNextPageCollectionsRequestResult);
+        }
+
+        /// <summary>
+        /// Starts a new request for a specific collection. If there is already an existing
+        /// request in progress, it will be cancelled.
+        /// </summary>
+        /// <param name="collectionUrl">URL identifier of the collection to get.</param>
+        public void StartRequestForSpecificCollection(string collectionUrl)
+        {
+            int thisQueryId = PrepareForNewQuery();
+
+            IcosaApi.GetCollection(collectionUrl, (IcosaStatusOr<IcosaCollection> result) =>
+            {
+                if (thisQueryId == queryId) OnRequestForSpecificCollectionResult(result);
+            });
+        }
+
+        /// <summary>
         /// Helper method to prepare the manager for starting a new query.
         /// </summary>
         private int PrepareForNewQuery()
@@ -335,6 +439,7 @@ namespace IcosaClientEditor
             querying = true;
             queryId++;
             assetResult = null;
+            collectionResult = null;
             return queryId;
         }
 
@@ -349,7 +454,16 @@ namespace IcosaClientEditor
             // (we will know they are obsolete by their query ID).
             queryId++;
             listAssetsResult = null;
+            listCollectionsResult = null;
             resultHasMorePages = false;
+        }
+
+        /// <summary>
+        /// Clear the current get collection result.
+        /// </summary>
+        public void ClearCurrentCollectionResult()
+        {
+            collectionResult = null;
         }
 
         /// <summary>
@@ -458,6 +572,90 @@ namespace IcosaClientEditor
         }
 
         /// <summary>
+        /// Callback invoked when a collections request completes.
+        /// </summary>
+        private void OnCollectionsRequestResult(IcosaStatusOr<IcosaListCollectionsResult> result)
+        {
+            if (result.Ok)
+            {
+                PtDebug.LogFormat("ABM: collections request results received ({0} collections).", result.Value.collections.Count);
+                this.listCollectionsResult = result;
+                resultHasMorePages = result.Value.nextPageToken != null;
+            }
+            else
+            {
+                Debug.LogError("Collections request failed. Try again later: " + result.Status);
+                this.listCollectionsResult = result;
+            }
+
+            querying = false;
+            if (null != refreshCallback) refreshCallback();
+
+            if (result.Ok)
+            {
+                // Fetch thumbnails for collections
+                foreach (IcosaCollection collection in result.Value.collections)
+                {
+                    FetchCollectionThumbnail(collection);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Callback invoked when the request for the next page of collections returns; appends
+        /// received collections to the existing result.
+        /// </summary>
+        private void OnNextPageCollectionsRequestResult(IcosaStatusOr<IcosaListCollectionsResult> result)
+        {
+            if (result.Ok)
+            {
+                PtDebug.LogFormat("ABM: collections request results received ({0} collections).", result.Value.collections.Count);
+                this.listCollectionsResult.Value.collections.AddRange(result.Value.collections);
+                this.listCollectionsResult.Value.nextPageToken = result.Value.nextPageToken;
+                resultHasMorePages = result.Value.nextPageToken != null;
+
+                // Fetch thumbnails for new collections
+                foreach (IcosaCollection collection in result.Value.collections)
+                {
+                    FetchCollectionThumbnail(collection);
+                }
+            }
+            else
+            {
+                Debug.LogError("Collections request failed. Try again later: " + result.Status);
+                this.listCollectionsResult = result;
+            }
+
+            querying = false;
+            if (null != refreshCallback) refreshCallback();
+        }
+
+        /// <summary>
+        /// Callback invoked when a specific collection request completes.
+        /// </summary>
+        private void OnRequestForSpecificCollectionResult(IcosaStatusOr<IcosaCollection> result)
+        {
+            if (result.Ok)
+            {
+                PtDebug.Log("ABM: get collection request received result.");
+                collectionResult = result.Value;
+
+                // Fetch collection thumbnail if not cached
+                if (!string.IsNullOrEmpty(collectionResult.imageUrl) && collectionResult.thumbnailTexture == null)
+                {
+                    FetchCollectionThumbnail(collectionResult);
+                }
+            }
+            else
+            {
+                Debug.LogError("Error: " + result.Status.errorMessage);
+            }
+
+            querying = false;
+            if (null != refreshCallback) refreshCallback();
+        }
+
+        /// <summary>
         /// Fetches thumbnails that do not yet exist in the cache.
         /// </summary>
         private void FinishFetchingThumbnails(IcosaStatusOr<IcosaListAssetsResult> result)
@@ -488,6 +686,21 @@ namespace IcosaClientEditor
         }
 
         /// <summary>
+        /// Fetch a thumbnail for a collection.
+        /// </summary>
+        private void FetchCollectionThumbnail(IcosaCollection collection)
+        {
+            if (string.IsNullOrEmpty(collection.imageUrl))
+            {
+                return;
+            }
+
+            IcosaFetchThumbnailOptions options = new IcosaFetchThumbnailOptions();
+            options.SetRequestedImageSize(THUMBNAIL_REQUESTED_SIZE);
+            IcosaApi.FetchCollectionThumbnail(collection, options, OnCollectionThumbnailFetched);
+        }
+
+        /// <summary>
         /// Callback invoked when an asset thumbnail is fetched.
         /// </summary>
         private void OnThumbnailFetched(IcosaAsset asset, IcosaStatus status)
@@ -502,6 +715,20 @@ namespace IcosaClientEditor
             if (null != refreshCallback) refreshCallback();
 
             thumbnailCache.TrimCacheWithExceptions(assetsInUse);
+        }
+
+        /// <summary>
+        /// Callback invoked when a collection thumbnail is fetched.
+        /// </summary>
+        private void OnCollectionThumbnailFetched(IcosaCollection collection, IcosaStatus status)
+        {
+            if (status.ok)
+            {
+                // Preserve the texture so it survives round-trips to play mode and back.
+                collection.thumbnailTexture.hideFlags = HideFlags.HideAndDontSave;
+            }
+
+            if (null != refreshCallback) refreshCallback();
         }
 
         /// <summary>
