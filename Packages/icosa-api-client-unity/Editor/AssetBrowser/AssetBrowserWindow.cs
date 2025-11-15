@@ -136,9 +136,19 @@ namespace IcosaClientEditor
         private const string KEY_YOUR_UPLOADS = "_your_uploads";
 
         /// <summary>
-        /// Category key corresponding to selecting the "Your Uploads" section.
+        /// Category key corresponding to selecting the "Your Likes" section.
         /// </summary>
         private const string KEY_YOUR_LIKES = "_your_likes";
+
+        /// <summary>
+        /// Category key corresponding to selecting the "Collections" section.
+        /// </summary>
+        private const string KEY_COLLECTIONS = "_collections";
+
+        /// <summary>
+        /// Category key corresponding to selecting the "Your Collections" section.
+        /// </summary>
+        private const string KEY_YOUR_COLLECTIONS = "_your_collections";
 
         /// <summary>
         /// Index of the "FEATURED" category below.
@@ -153,6 +163,8 @@ namespace IcosaClientEditor
             new CategoryInfo(KEY_FEATURED, "Featured", IcosaCategory.UNSPECIFIED),
             new CategoryInfo(KEY_YOUR_UPLOADS, "Your Uploads", IcosaCategory.UNSPECIFIED),
             new CategoryInfo(KEY_YOUR_LIKES, "Your Likes", IcosaCategory.UNSPECIFIED),
+            new CategoryInfo(KEY_COLLECTIONS, "Collections", IcosaCategory.UNSPECIFIED),
+            new CategoryInfo(KEY_YOUR_COLLECTIONS, "Your Collections", IcosaCategory.UNSPECIFIED),
             new CategoryInfo("animals", "Animals and Creatures", IcosaCategory.ANIMALS),
             new CategoryInfo("architecture", "Architecture", IcosaCategory.ARCHITECTURE),
             new CategoryInfo("art", "Art", IcosaCategory.ART),
@@ -178,6 +190,12 @@ namespace IcosaClientEditor
 
             // Viewing the details of a particular asset.
             DETAILS,
+
+            // Browsing collections.
+            BROWSE_COLLECTIONS,
+
+            // Viewing the details of a particular collection.
+            COLLECTION_DETAILS,
         };
 
         /// <summary>
@@ -235,6 +253,12 @@ namespace IcosaClientEditor
         /// we are showing the grid screen that shows all assets.
         /// </summary>
         private IcosaAsset selectedAsset = null;
+
+        /// <summary>
+        /// If non-null, we're showing the details page for the given collection. If null,
+        /// we are showing the grid screen that shows all collections.
+        /// </summary>
+        private IcosaCollection selectedCollection = null;
 
         /// <summary>
         /// Indicates whether the query we're currently showing requires authentication.
@@ -400,6 +424,12 @@ namespace IcosaClientEditor
                     break;
                 case UiMode.DETAILS:
                     DrawDetailsUi();
+                    break;
+                case UiMode.BROWSE_COLLECTIONS:
+                    DrawBrowseCollectionsUi();
+                    break;
+                case UiMode.COLLECTION_DETAILS:
+                    DrawCollectionDetailsUi();
                     break;
                 default:
                     throw new System.Exception("Invalid UI mode: " + mode);
@@ -873,7 +903,7 @@ namespace IcosaClientEditor
         private bool CategoryRequiresAuth(int category)
         {
             string key = CATEGORIES[category].key;
-            return (key == KEY_YOUR_UPLOADS || key == KEY_YOUR_LIKES);
+            return (key == KEY_YOUR_UPLOADS || key == KEY_YOUR_LIKES || key == KEY_YOUR_COLLECTIONS);
         }
 
         /// <summary>
@@ -915,11 +945,22 @@ namespace IcosaClientEditor
             if (CategoryRequiresAuth(selection) && !IcosaApi.IsAuthenticated)
             {
                 EditorUtility.DisplayDialog("Sign in required",
-                    "To view your uploads or likes, you must sign in first.", "OK");
+                    "To view your uploads, likes, or collections, you must sign in first.", "OK");
                 return;
             }
 
             selectedCategory = (int)userData;
+
+            // Switch to the appropriate UI mode based on whether this is a collection category
+            string categoryKey = CATEGORIES[selectedCategory].key;
+            if (categoryKey == KEY_COLLECTIONS || categoryKey == KEY_YOUR_COLLECTIONS)
+            {
+                SetUiMode(UiMode.BROWSE_COLLECTIONS);
+            }
+            else
+            {
+                SetUiMode(UiMode.BROWSE);
+            }
 
             StartRequest();
         }
@@ -942,6 +983,18 @@ namespace IcosaClientEditor
             {
                 IcosaListLikedAssetsRequest listLikedAssetsRequest = IcosaListLikedAssetsRequest.MyLiked();
                 return listLikedAssetsRequest;
+            }
+
+            if (info.key == KEY_COLLECTIONS)
+            {
+                IcosaListCollectionsRequest listCollectionsRequest = IcosaListCollectionsRequest.Newest();
+                return listCollectionsRequest;
+            }
+
+            if (info.key == KEY_YOUR_COLLECTIONS)
+            {
+                IcosaListUserCollectionsRequest listUserCollectionsRequest = IcosaListUserCollectionsRequest.MyNewest();
+                return listUserCollectionsRequest;
             }
 
             IcosaListAssetsRequest listAssetsRequest;
@@ -967,7 +1020,7 @@ namespace IcosaClientEditor
         /// </summary>
         private void StartRequest()
         {
-            if (mode == UiMode.BROWSE)
+            if (mode == UiMode.BROWSE || mode == UiMode.BROWSE_COLLECTIONS)
             {
                 IcosaRequest request = BuildRequest();
                 queryRequiresAuth = CategoryRequiresAuth(selectedCategory);
@@ -1323,6 +1376,232 @@ namespace IcosaClientEditor
                 Application.OpenURL(url);
                 Event.current.Use();
             }
+        }
+
+        /// <summary>
+        /// Draws the "browse collections" UI similar to DrawBrowseUi but for collections.
+        /// </summary>
+        private void DrawBrowseCollectionsUi()
+        {
+            guiHelper.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            bool searchClicked = GUILayout.Button("Search...");
+            guiHelper.EndHorizontal();
+
+            if (searchClicked)
+            {
+                SetUiMode(UiMode.SEARCH);
+                manager.ClearRequest();
+                return;
+            }
+
+            guiHelper.BeginHorizontal();
+
+            // Draw the category dropdowns.
+            GUILayout.Label("Show:", GUILayout.Width(LEFT_COL_WIDTH));
+            if (EditorGUILayout.DropdownButton(new GUIContent(CATEGORIES[selectedCategory].title),
+                    FocusType.Keyboard))
+            {
+                GenericMenu menu = new GenericMenu();
+                for (int i = 0; i < CATEGORIES.Length; i++)
+                {
+                    if (i == 3) menu.AddSeparator("");
+                    menu.AddItem(new GUIContent(CATEGORIES[i].title), i == selectedCategory, DropdownMenuCallback, i);
+                }
+
+                menu.ShowAsContext();
+            }
+
+            guiHelper.EndHorizontal();
+            GUILayout.Space(10);
+
+            DrawCollectionsGrid();
+        }
+
+        /// <summary>
+        /// Draws a grid of collections (similar to DrawResultsGrid but for collections).
+        /// </summary>
+        private void DrawCollectionsGrid()
+        {
+            if (manager.CurrentCollectionsResult == null)
+            {
+                GUILayout.Label("Loading collections...");
+                return;
+            }
+
+            if (!manager.CurrentCollectionsResult.Ok)
+            {
+                GUILayout.Label("Error loading collections: " + manager.CurrentCollectionsResult.Status);
+                return;
+            }
+
+            List<IcosaCollection> collections = manager.CurrentCollectionsResult.Value.collections;
+            if (collections == null || collections.Count == 0)
+            {
+                GUILayout.Label("No collections found.");
+                return;
+            }
+
+            assetListScrollPos = guiHelper.BeginScrollView(assetListScrollPos);
+
+            int columns = Mathf.Max(1, (int)position.width / (CELL_WIDTH + CELL_SPACING));
+            int rows = (collections.Count + columns - 1) / columns;
+
+            for (int row = 0; row < rows; row++)
+            {
+                guiHelper.BeginHorizontal();
+                for (int col = 0; col < columns; col++)
+                {
+                    int index = row * columns + col;
+                    if (index >= collections.Count) break;
+
+                    IcosaCollection collection = collections[index];
+                    if (GUILayout.Button(collection.thumbnailTexture != null ? collection.thumbnailTexture : loadingTex,
+                            GUILayout.Width(THUMBNAIL_WIDTH), GUILayout.Height(THUMBNAIL_HEIGHT)))
+                    {
+                        // User clicked on collection. Show collection details.
+                        selectedCollection = collection;
+                        SetUiMode(UiMode.COLLECTION_DETAILS);
+                        return;
+                    }
+
+                    GUILayout.Space(CELL_SPACING);
+                }
+                guiHelper.EndHorizontal();
+
+                // Draw collection names below thumbnails
+                guiHelper.BeginHorizontal();
+                for (int col = 0; col < columns; col++)
+                {
+                    int index = row * columns + col;
+                    if (index >= collections.Count) break;
+
+                    IcosaCollection collection = collections[index];
+                    GUILayout.Label(collection.name, GUILayout.Width(THUMBNAIL_WIDTH));
+                    GUILayout.Space(CELL_SPACING);
+                }
+                guiHelper.EndHorizontal();
+                GUILayout.Space(10);
+            }
+
+            // Show "Load More" button if there are more pages
+            if (manager.resultHasMorePages)
+            {
+                guiHelper.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Load More"))
+                {
+                    manager.GetNextPageCollectionsRequest();
+                }
+                GUILayout.FlexibleSpace();
+                guiHelper.EndHorizontal();
+            }
+
+            guiHelper.EndScrollView();
+        }
+
+        /// <summary>
+        /// Draws the collection details UI (shows info about a single collection and its assets).
+        /// </summary>
+        private void DrawCollectionDetailsUi()
+        {
+            if (selectedCollection == null)
+            {
+                GUILayout.Label("No collection selected.");
+                return;
+            }
+
+            detailsScrollPos = guiHelper.BeginScrollView(detailsScrollPos);
+
+            // Collection title
+            GUILayout.Label(selectedCollection.name, detailsTitleStyle);
+            GUILayout.Space(10);
+
+            // Collection description
+            if (!string.IsNullOrEmpty(selectedCollection.description))
+            {
+                guiHelper.BeginHorizontal();
+                GUILayout.Label("Description:", EditorStyles.boldLabel, GUILayout.Width(LEFT_COL_WIDTH));
+                GUILayout.Label(selectedCollection.description, EditorStyles.wordWrappedLabel);
+                guiHelper.EndHorizontal();
+                GUILayout.Space(5);
+            }
+
+            // Visibility
+            guiHelper.BeginHorizontal();
+            GUILayout.Label("Visibility:", EditorStyles.boldLabel, GUILayout.Width(LEFT_COL_WIDTH));
+            GUILayout.Label(selectedCollection.visibility.ToString());
+            guiHelper.EndHorizontal();
+            GUILayout.Space(5);
+
+            // Created date
+            guiHelper.BeginHorizontal();
+            GUILayout.Label("Created:", EditorStyles.boldLabel, GUILayout.Width(LEFT_COL_WIDTH));
+            GUILayout.Label(selectedCollection.createTime.ToString("yyyy-MM-dd"));
+            guiHelper.EndHorizontal();
+            GUILayout.Space(5);
+
+            // View on web link
+            guiHelper.BeginHorizontal();
+            GUILayout.Label("", GUILayout.Width(LEFT_COL_WIDTH));
+            DrawLinkLabel("View collection on Icosa Gallery", selectedCollection.Url);
+            guiHelper.EndHorizontal();
+            GUILayout.Space(20);
+
+            // Assets in this collection
+            GUILayout.Label(string.Format("Assets in this collection ({0}):", selectedCollection.assets.Count),
+                EditorStyles.boldLabel);
+            GUILayout.Space(10);
+
+            if (selectedCollection.assets.Count == 0)
+            {
+                GUILayout.Label("This collection has no assets.");
+            }
+            else
+            {
+                // Draw grid of assets from this collection
+                int columns = Mathf.Max(1, (int)position.width / (CELL_WIDTH + CELL_SPACING));
+                int rows = (selectedCollection.assets.Count + columns - 1) / columns;
+
+                for (int row = 0; row < rows; row++)
+                {
+                    guiHelper.BeginHorizontal();
+                    for (int col = 0; col < columns; col++)
+                    {
+                        int index = row * columns + col;
+                        if (index >= selectedCollection.assets.Count) break;
+
+                        IcosaAsset asset = selectedCollection.assets[index];
+                        if (GUILayout.Button(asset.thumbnailTexture != null ? asset.thumbnailTexture : loadingTex,
+                                GUILayout.Width(THUMBNAIL_WIDTH), GUILayout.Height(THUMBNAIL_HEIGHT)))
+                        {
+                            // User clicked on an asset from the collection. Show asset details.
+                            selectedAsset = asset;
+                            SetUiMode(UiMode.DETAILS);
+                            return;
+                        }
+
+                        GUILayout.Space(CELL_SPACING);
+                    }
+                    guiHelper.EndHorizontal();
+
+                    // Draw asset names below thumbnails
+                    guiHelper.BeginHorizontal();
+                    for (int col = 0; col < columns; col++)
+                    {
+                        int index = row * columns + col;
+                        if (index >= selectedCollection.assets.Count) break;
+
+                        IcosaAsset asset = selectedCollection.assets[index];
+                        GUILayout.Label(asset.displayName, GUILayout.Width(THUMBNAIL_WIDTH));
+                        GUILayout.Space(CELL_SPACING);
+                    }
+                    guiHelper.EndHorizontal();
+                    GUILayout.Space(10);
+                }
+            }
+
+            guiHelper.EndScrollView();
         }
 
         private void OnDestroy()
